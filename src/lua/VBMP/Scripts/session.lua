@@ -367,6 +367,8 @@ function M.new(opts)
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 damagesync.onRadial(a, b, c, d, e, f, g, h, i, j, k, l)
             end
+        elseif kind == T.WIPE then
+            if downed and S.mode == "client" and sender == S.hostId then downed.onWipe() end
         elseif kind == T.TIMESTOP then
             if not timestop then return end
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
@@ -509,6 +511,8 @@ function M.new(opts)
             end
             local ok, err = pcall(downed.tick, dt, {
                 teammates = mates,
+                isHost = (S.mode == "host"),
+                sendWipe = function() for _, id in ipairs(targets) do send(id, T.WIPE, true) end end,
                 sendRevive = function(id)
                     if S.mode == "host" then send(id, T.REVIVE, true, id)
                     elseif S.hostId then send(S.hostId, T.REVIVE, true, id) end

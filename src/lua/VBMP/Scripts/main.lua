@@ -214,6 +214,7 @@ local function command(cmd)
     elseif cmd == "lanjoin" then startSession("client", nil, "localfile")
     elseif cmd == "leave" then stopSession()
     elseif cmd == "hud" then hud.toggle()
+    elseif cmd == "revivehold" then downed.forceHold = not downed.forceHold; log("revivehold " .. tostring(downed.forceHold))
     else log("unknown command " .. cmd) end
 end
 

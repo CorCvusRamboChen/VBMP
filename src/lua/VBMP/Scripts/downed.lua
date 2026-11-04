@@ -7,14 +7,14 @@
 --
 -- While at least one teammate is connected, a hit that would kill the local player turns on
 -- Debug_GodMode in the DealDamageToPlayer pre-hook instead: the player is downed (slow, still
--- able to shoot), bleeds out after BLEED_OUT seconds (then the normal death runs), and is
--- revived when a teammate stands within REVIVE_DIST for REVIVE_TIME seconds (REVIVE message).
+-- able to shoot) and is revived when a teammate holds interact within REVIVE_DIST for
+-- REVIVE_TIME seconds (REVIVE message). The run fails only when the whole team is down: the host
+-- then sends WIPE and everyone's normal death runs (docs/coop-rules.md).
 
 local M = {}
 
 local CHAR = "/Game/FirstPerson/Blueprints/CH_LimaCharacter.CH_LimaCharacter_C"
 local ENEMY_DAMAGE = "/Game/ProjectLima/Blueprints/Damage/DamageType_Enemy.DamageType_Enemy_C"
-local BLEED_OUT = 45
 local REVIVE_DIST = 250
 local REVIVE_TIME = 3
 local REVIVE_HEAL = 0.3        -- of max health
@@ -94,51 +94,89 @@ function M.new(log, hud)
         H("notify", "被 " .. tostring(byName) .. " 救起")
     end
 
-    -- Network loop. ctx.teammates = { [id] = { name, pos, downed } } (same level), ctx.sendRevive(id).
+    local function die(me, why)
+        D.stats.bleedOuts = D.stats.bleedOuts + 1
+        log("downed: " .. why .. " - the game's own death runs")
+        getUp(me, false)
+        local gs = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+        local dmgType = StaticFindObject(ENEMY_DAMAGE)
+        local hp = health(me) or 1
+        pcall(function() gs:ApplyPointDamage(me, hp + 1000, { X = 1, Y = 0, Z = 0 }, {}, nil, nil, dmgType) end)
+    end
+
+    -- Everyone is down (the host decided): the run fails for all.
+    function D.onWipe()
+        local me = aggro.localPlayer()
+        if valid(me) and (D.downed or pending) then die(me, "whole team down") end
+    end
+
+    -- Revive key held: the game's interact key E or gamepad X (IsInputKeyDown on the controller,
+    -- self-test 2026-11-05), or the "revivehold" test command.
+    D.forceHold = false
+    local KEYS = { "E", "Gamepad_FaceButton_Left" }
+    local function holding()
+        if D.forceHold then return true end
+        local pc = aggro.localController()
+        if not valid(pc) then return false end
+        for _, k in ipairs(KEYS) do
+            local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName(k) }) end)
+            if ok and down then return true end
+        end
+        return false
+    end
+
+    -- Network loop. ctx.teammates = { [id] = { name, pos, downed } } (same level),
+    -- ctx.sendRevive(id), ctx.isHost, ctx.sendWipe().
     function D.tick(dt, ctx)
-        local nTeam = 0
-        for _ in pairs(ctx.teammates) do nTeam = nTeam + 1 end
+        local nTeam, allDown = 0, true
+        for _, t in pairs(ctx.teammates) do
+            nTeam = nTeam + 1
+            if not t.downed then allDown = false end
+        end
         D.active = nTeam > 0
         if D.active then D.install() end
         local me = aggro.localPlayer()
         if not valid(me) then return end
 
         if pending and not D.downed then
-            D.downed, D.bleed = true, BLEED_OUT
+            D.downed = true
             D.stats.downs = D.stats.downs + 1
             setSpeed(me, DOWNED_SPEED)
             H("setLocalDown", {})
-            log("downed: down, " .. BLEED_OUT .. " s to be revived")
+            log("downed: down, waiting for a teammate")
         end
 
         if D.downed then
             me.Debug_GodMode = true
-            D.bleed = D.bleed - dt
-            -- nobody left to revive us, or out of time: the game's own death
-            if D.bleed <= 0 or not D.active then
-                D.stats.bleedOuts = D.stats.bleedOuts + 1
-                log("downed: bled out")
-                getUp(me, false)
-                local gs = StaticFindObject("/Script/Engine.Default__GameplayStatics")
-                local dmgType = StaticFindObject(ENEMY_DAMAGE)
-                local hp = health(me) or 1
-                pcall(function() gs:ApplyPointDamage(me, hp + 1000, { X = 1, Y = 0, Z = 0 }, {}, nil, nil, dmgType) end)
+            -- Rule (docs/coop-rules.md): the run only fails when the whole team is down. The host
+            -- sees everyone's flag; nobody left in the session also means death.
+            if not D.active then
+                die(me, "no teammate left")
+            elseif ctx.isHost and allDown then
+                ctx.sendWipe()
+                die(me, "whole team down")
             end
         end
 
-        -- Reviving teammates: stand next to a downed one for REVIVE_TIME seconds.
-        local action = nil
+        -- Reviving teammates: hold interact next to a downed one for REVIVE_TIME seconds.
+        local action, hint = nil, nil
         if not D.downed then
             local l = me:K2_GetActorLocation()
+            local held = holding()
             for id, t in pairs(ctx.teammates) do
                 if t.downed and t.pos and (t.pos.X - l.X) ^ 2 + (t.pos.Y - l.Y) ^ 2 + (t.pos.Z - l.Z) ^ 2 <= REVIVE_DIST * REVIVE_DIST then
-                    reviving[id] = (reviving[id] or 0) + dt
-                    action = { name = t.name, progress = math.min(1, reviving[id] / REVIVE_TIME) }
-                    if reviving[id] >= REVIVE_TIME then
-                        ctx.sendRevive(id)
-                        D.stats.revives = D.stats.revives + 1
-                        log("downed: revived " .. tostring(t.name))
+                    if held then
+                        reviving[id] = (reviving[id] or 0) + dt
+                        action = { name = t.name, progress = math.min(1, reviving[id] / REVIVE_TIME) }
+                        if reviving[id] >= REVIVE_TIME then
+                            ctx.sendRevive(id)
+                            D.stats.revives = D.stats.revives + 1
+                            log("downed: revived " .. tostring(t.name))
+                            reviving[id] = nil
+                        end
+                    else
                         reviving[id] = nil
+                        hint = t.name
                     end
                 else
                     reviving[id] = nil
@@ -146,6 +184,7 @@ function M.new(log, hud)
             end
         end
         if action then H("setReviveAction", action.name, action.progress) else H("setReviveAction", nil) end
+        H("setReviveHint", (not action) and hint or nil)
     end
 
     -- Session over: never leave the player invulnerable.
