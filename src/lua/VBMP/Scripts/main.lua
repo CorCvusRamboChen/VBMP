@@ -141,6 +141,7 @@ local saveguard = require("saveguard").new(log)
 local worldsync = require("worldsync").new(log)
 local damagesync = require("damagesync").new(log)
 local downed = require("downed").new(log, hud)
+local timestop = require("timestop").new(log)
 local session = nil
 local lastNow = nil
 
@@ -197,6 +198,7 @@ local function startSession(mode, hostId, via)
         worldsync = (mode ~= "loopback") and worldsync or nil,
         damagesync = (mode ~= "loopback") and damagesync or nil,
         downed = (mode ~= "loopback") and downed or nil,
+        timestop = (mode ~= "loopback") and timestop or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
     })
@@ -369,6 +371,7 @@ local function selfTest()
         { T.DST_HIT, "BP_DST_M25_4x4_Floor_C_UAID_X", 1.5, -2.5, 3.5, 50, "/Game/D.D_C", 0, 0, -1 },
         { T.RADIAL, 1, 10.5, 20.5, 30.5, 25, 20, 50, 225, 0, 0, 3, "/Game/E.E_C" },
         { T.REVIVE, 76561197960265730 },
+        { T.TIMESTOP, 3.5 },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }
     local sender = 76561197960265729

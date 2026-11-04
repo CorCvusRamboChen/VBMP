@@ -43,6 +43,7 @@ M.T = {
                         --                damage type class path
     -- co-op rules (downed.lua)
     REVIVE = 22,        -- "<i8"        the downed player being revived (SteamID64); the host forwards
+    TIMESTOP = 23,      -- "<f"         someone used time stop for this many seconds (timestop.lua)
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -71,6 +72,7 @@ local BODY = {
     [M.T.DST_HIT] = "<s1ffffs1fff",
     [M.T.RADIAL] = "<BffffffffBBs1",
     [M.T.REVIVE] = "<i8",
+    [M.T.TIMESTOP] = "<f",
 }
 
 -- s1 strings hold at most 255 bytes.

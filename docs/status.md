@@ -114,6 +114,7 @@
 | 步骤 | 内容 | 验收 | 状态 |
 |---|---|---|---|
 | 4.1 | 倒地 + 复活（`downed.lua`，消息 `REVIVE` 22，`PLAYER_HP` 的倒地位）：有队友在线时，致命一击在 `DealDamageToPlayer` 前置 hook 里打开 `Debug_GodMode`（实测它、`DEBUG_TempGodMode?`、`bCanBeDamaged=false` 都能挡伤害）；倒地后移动 150、可开枪，45 秒流血；队友在 250 以内站 3 秒即复活（回 30% 血）；超时或队友全走则关无敌并施加致命伤害，走游戏自己的死亡流程 | 双实例：B 吃 200 伤害 → 倒地（画面"你倒地了/等待队友复活"，无死亡画面，血量显示 0）；A 走到旁边 3 秒后 B 复活 33/110、速度恢复 800；第二次倒地无人救 → 45 秒后死亡并在同一世界重生，联机不断，存档仍写 `VBMP_client` | ✅ 2026-11-05 05:18 |
+| 4.2 | 时停全员生效（	imestop.lua，消息 TIMESTOP 23）：hook PC_LimaPlayerController_C.ABL_ActivateChronoHold?（实测它调用 FreezeTime+FreezeBH，duration 秒后 ResumeTime+ResumeBH，全局时间流速不变）；本地激活发给房主，房主应用（冻住真敌人）并转发给其他客户端 | 双实例：B 用 3 秒时停 → A 上的步兵坐标在 3.6–6.1 s 不动，之后继续移动 | ✅ 2026-11-05 05:22 |
 
 已知：倒地那一下的扣血没挡住（血量会到 0，但不会死）；房主死亡时客户端的处理没有专门设计。
 

@@ -64,6 +64,8 @@ function M.new(opts)
     local damagesync = opts.damagesync
     -- Downed + revive (downed.lua).
     local downed = opts.downed
+    -- Time stop for everyone (timestop.lua).
+    local timestop = opts.timestop
     local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
@@ -217,6 +219,7 @@ function M.new(opts)
         if destruction then pcall(destruction.clear) end
         if worldsync then pcall(worldsync.clear) end
         if downed then pcall(downed.clear) end
+        if timestop then pcall(timestop.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -364,6 +367,11 @@ function M.new(opts)
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 damagesync.onRadial(a, b, c, d, e, f, g, h, i, j, k, l)
             end
+        elseif kind == T.TIMESTOP then
+            if not timestop then return end
+            if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
+                timestop.onRemote(a, sender)
+            end
         elseif kind == T.REVIVE then
             if not downed or not knownPeer(sender) then return end
             if a == tr.selfId then
@@ -481,6 +489,16 @@ function M.new(opts)
                 end
             end, lastLevelSent)
             if not ok then log("destruction tick failed: " .. tostring(err)) end
+        end
+        if timestop and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
+            local ok, err = pcall(timestop.tick, function(d, except)
+                if S.mode == "host" then
+                    for _, id in ipairs(targets) do if id ~= except then send(id, T.TIMESTOP, true, d) end end
+                else
+                    send(S.hostId, T.TIMESTOP, true, d)
+                end
+            end, S.mode == "host")
+            if not ok then log("timestop tick failed: " .. tostring(err)) end
         end
         if downed and S.mode ~= "loopback" then
             local mates = {}
