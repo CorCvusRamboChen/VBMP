@@ -106,8 +106,12 @@ function M.new(log)
     function G.clientStarted()
         G.install()
         if not G.active then
-            local copied = copyFile(SAVES .. REAL_SLOT .. ".sav", SAVES .. CLIENT_SLOT .. ".sav")
-            log("saveguard: ON - saving to " .. CLIENT_SLOT .. ".sav (copy of the real save: " .. tostring(copied) .. ")")
+            -- start from the slot this game is playing (normally LimaSaveGame)
+            local from = REAL_SLOT
+            local g = gi()
+            if valid(g) then local cur = slotOf(g); if cur and cur ~= "" and cur ~= CLIENT_SLOT then from = cur end end
+            local copied = copyFile(SAVES .. from .. ".sav", SAVES .. CLIENT_SLOT .. ".sav")
+            log("saveguard: ON - saving to " .. CLIENT_SLOT .. ".sav (copy of " .. from .. ": " .. tostring(copied) .. ")")
         end
         G.active, G.untilMenu = true, false
         local ok = setSlot(CLIENT_SLOT)

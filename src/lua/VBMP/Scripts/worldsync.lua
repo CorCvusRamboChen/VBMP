@@ -10,8 +10,9 @@
 -- Host: on a client's HELLO it saves (GI.SaveGameData(false)) and sends that slot file in
 -- WORLD_SAVE chunks. Client: writes the bytes to the client slot (VBMP_client.sav - saveguard.lua
 -- keeps the client on that slot), goes to the main menu and presses Continue.
--- v1 limit: the client then carries the host's character state too (weapons, mods, inventory),
--- only in its VBMP_client slot - its real save is untouched.
+-- v2: the client keeps its own character (weapons, mods, inventory, upgrades, currency): only the
+-- layout properties below are taken from the host's save and spliced into the client's own
+-- VBMP_client.sav (gvas.lua, whole top-level properties). Its real save is never touched.
 
 local M = {}
 
@@ -21,6 +22,24 @@ local CHUNK = 30000          -- localfile frames are "<s2" (max 65535 bytes)
 local MENU = "/Game/ProjectLima/Levels/Menu/LV_LimaMainMenu"
 local CONTINUE = "BndEvt__WBP_PlayMenu_BTN_Continue_K2Node_ComponentBoundEvent_4_CommonButtonBaseClicked__DelegateSignature"
 local STEP_TIMEOUT = 90
+
+local gvas = require("gvas")
+
+-- Top-level BP_SaveGame_Lima_C properties that describe the world/run rather than the player
+-- (names from the CXX dump BP_SaveGame_Lima.hpp). Everything else stays the client's own.
+local LAYOUT = {}
+for n in ([[Level CurrentBiome CurrentDifficultyTier CurrentMusicTier CurrentBiomeTier OverallTier PlayerStartTag
+CurrentSavedLevel DestroyedActors SwitchedActors RunActors LastScenarioClear DisabledRunActors ExcludedLevels
+ObjectSaveData DisabledRunIDActors CurrentMission IsInActiveRun? HasSavedRunProgress? HasPopulatedWorld?
+HasInitiatedRun? HasEnteredABiome? SwitchedZone01? SwitchedZone02? StoryAct CurrentLoops CurrentSubLoops
+LastTeleportedFrom LatestClearedGate LatestCollectedChip DesiredDeathStartTag HasCompletedZone01? HasCompletedZone02?
+HasCompletedZone03? HasCompletedZone04? HasCompletedZone05? HasCompletedZone06? HasCompletedZone03b?
+HasCompletedZone03c? DefeatedBoss01? Boss01CodeCombination MainDifficultySetting ChaosRating DIFF_SilentNight?
+DIFF_CreditSuspension? DIFF_Inflation? DIFF_Frenzy? DIFF_AnomalySpike? DIFF_AnomalyFault? DIFF_UnluckyDay?
+DIFF_ApexSurge? DIFF_EliteSurge? DIFF_StackThrottle? DIFF_RepeaterCap? DIFF_DeathLock? DIFF_Reinforcements?
+DIFF_Vulnerable? DIFF_Lifeline? DIFF_SlimPickings? DIFF_Empowered? DIFF_FastRecovery?]]):gmatch("%S+") do
+    LAYOUT[n] = true
+end
 
 local function valid(o) return type(o) == "userdata" and o:IsValid() end
 local inMenu = require("saveguard").inMenu
@@ -86,6 +105,17 @@ function M.new(log)
         local data = table.concat(buf)
         W.rx = nil
         if #data ~= total then log("worldsync: bad transfer size " .. #data .. "/" .. total); return end
+        -- Our own save (saveguard copied the real one to the client slot) + the host's layout.
+        local base = readFile(SAVES .. CLIENT_SLOT .. ".sav")
+        if base then
+            local merged, kept, taken = gvas.splice(base, data, LAYOUT)
+            if merged then
+                log(string.format("worldsync: kept %d of our properties, took %d layout properties from the host", kept, taken))
+                data = merged
+            else
+                log("worldsync: splice failed (" .. tostring(kept) .. "), using the host save as is")
+            end
+        end
         local f = io.open(SAVES .. CLIENT_SLOT .. ".sav", "wb")
         if not f then log("worldsync: cannot write " .. CLIENT_SLOT .. ".sav"); return end
         f:write(data)
