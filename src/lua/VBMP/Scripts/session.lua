@@ -372,6 +372,8 @@ function M.new(opts)
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 damagesync.onRadial(a, b, c, d, e, f, g, h, i, j, k, l)
             end
+        elseif kind == T.PLAYER_HIT then
+            if damagesync and S.mode == "client" and sender == S.hostId then damagesync.onPlayerHit(a) end
         elseif kind == T.INTERACT then
             if not interact then return end
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then

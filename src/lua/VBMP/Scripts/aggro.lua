@@ -98,6 +98,7 @@ function M.new(log, E)
         assigned = {},   -- enemy id -> "host" | peer id
         hitBy = {},      -- enemy id -> { who = "host" | peer id, at = time }
         redirects = {},  -- bullets to re-aim: { proj, id }
+        hits = {},       -- damage dealt to a stand-in, for its player: { peer, amount }
         since = {},      -- enemy id -> time of its last target change
         shifted = {},    -- enemy id -> the move point we last wrote
         stats = { stands = 0, toPeers = 0, switches = 0, redirected = 0, enforced = 0, shifted = 0 },
@@ -185,6 +186,23 @@ function M.new(log, E)
         if isMove then shiftMove(c, id, t) end
     end
 
+    -- Melee (e.g. CH_AI_Hound: CH_LimaCharacter_C.DealDamageToPlayer(20) called directly, no
+    -- engine damage function, self-test 2026-11-05) lands on the stand-in of the player the enemy
+    -- is after: that player takes it. Bullets pass through stand-ins (no collision) and radial
+    -- damage skips them (bCanBeDamaged), so nothing reaches this twice.
+    local function onStandHit(self, d)
+        local a = self:get()
+        if not valid(a) then return end
+        local addr0 = a:GetAddress()
+        for peer, s in pairs(A.stands) do
+            if valid(s.actor) and s.actor:GetAddress() == addr0 then
+                local amount = d:get()
+                if type(amount) == "number" and amount > 0 and #A.hits < 32 then table.insert(A.hits, { peer = peer, amount = amount }) end
+                return
+            end
+        end
+    end
+
     local function onActivate(self, on)
         if not fireId then return end
         local id = fireId
@@ -195,6 +213,12 @@ function M.new(log, E)
     end
 
     local function tryHooks()
+        if not hookedPaths.standHit then
+            local ok = pcall(RegisterHook, CHAR_CLASS .. ":DealDamageToPlayer", function(self, d)
+                if E.role == "host" then pcall(onStandHit, self, d) end
+            end)
+            if ok then hookedPaths.standHit = true; log("aggro: hooked stand-in damage") end
+        end
         for _, list in ipairs({ TARGET_READERS, ACTIVATE }) do
             for _, path in ipairs(list) do
                 if not hookedPaths[path] then
@@ -232,10 +256,13 @@ function M.new(log, E)
 
     local function hideStand(a)
         pcall(function() a.bCanBeDamaged = false end)
+        pcall(function() a.Debug_GodMode = true end)   -- melee calls DealDamageToPlayer directly
         -- Not SetActorHiddenInGame: pawn perception skips hidden pawns, and the enemies never saw
         -- the stand-in (dual test 2026-11-05). Hide the components instead.
         pcall(function() a.RootComponent:SetVisibility(false, true) end)
-        pcall(function() a:SetActorEnableCollision(false) end)
+        -- Collision stays ON: melee hits find the stand-in by collision (a hound only reached a
+        -- collision-less stand-in to 300 units). Re-aimed bullets that hit it do nothing
+        -- (bCanBeDamaged = false); the host can bump into an unseen teammate, like into the puppet.
         pcall(function() a:SetActorTickEnabled(false) end)
         pcall(function() a.CharacterMovement:SetMovementMode(0, 0) end)   -- MOVE_None: no gravity
         pcall(function()
@@ -354,6 +381,19 @@ function M.new(log, E)
                         local held = A.assigned[id] and now - (A.since[id] or 0) < HOLD
                         if not better or held then choice = cur end
                     end
+                    -- Some enemies (CH_AI_Hound, dual test 2026-11-05) never notice a stand-in on
+                    -- their own: they idled (EnemyState 0, CanSeeTarget? false) 300 units from it.
+                    -- AI_Controller_C.ForceSeePlayer() engages them with the current target.
+                    if choice.who ~= "host" and choice.see then
+                        local seen = true
+                        pcall(function() seen = c.Blackboard:GetValueAsBool(FName("CanSeeTarget?")) end)
+                        A.forced = A.forced or {}
+                        if not seen and now - (A.forced[id] or -10) > 2 then
+                            A.forced[id] = now
+                            pcall(enforceId, id, true)
+                            pcall(function() c:ForceSeePlayer() end)
+                        end
+                    end
                     local before = A.assigned[id]
                     A.assigned[id] = choice.who
                     if before ~= choice.who then
@@ -437,6 +477,7 @@ function M.new(log, E)
     function A.clear()
         for peer in pairs(A.stands) do removeStand(peer, "session ended") end
         A.stands, A.chars, A.assigned, A.hitBy, A.redirects, A.since, A.shifted = {}, {}, {}, {}, {}, {}, {}
+        A.hits = {}
         fireId = nil
     end
 

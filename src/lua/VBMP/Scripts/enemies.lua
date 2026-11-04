@@ -307,6 +307,15 @@ function M.new(log, hud)
         tryHook()
         local okA, errA = pcall(E.aggro.tick, dt, ctx and ctx.remote or {})
         if not okA then log("enemies: aggro tick failed: " .. tostring(errA)) end
+        -- damage that landed on a stand-in goes to its player (PLAYER_HIT)
+        local hits = E.aggro.hits
+        E.aggro.hits = {}
+        for _, h in ipairs(hits) do
+            if ctx and ctx.sendTo then
+                ctx.sendTo(h.peer, "PLAYER_HIT", true, h.amount)
+                log(string.format("enemies: %.1f damage on %s's stand-in sent to them", h.amount, tostring(h.peer)))
+            end
+        end
         if ctx and ctx.peers == 0 then return end     -- nobody to send to; aggro still tidies up
         local okR, errR = pcall(routeShots, ctx)
         if not okR then log("enemies: shot routing failed: " .. tostring(errR)) end

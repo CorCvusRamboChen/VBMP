@@ -124,6 +124,13 @@ function M.new(log)
         if role then D.install() end
     end
 
+    -- host -> us: an enemy's direct hit (melee) on our stand-in; the same call on our own player
+    function D.onPlayerHit(amount)
+        if D.role == "client" and type(amount) == "number" and amount > 0 and amount < 100000 and #D.inbox < MAX_QUEUE then
+            table.insert(D.inbox, { kind = "player", dmg = amount })
+        end
+    end
+
     function D.onHit(name, x, y, z, dmg, dtype, dx, dy, dz)
         if D.role ~= "host" or #D.inbox >= MAX_QUEUE then return end
         table.insert(D.inbox, { kind = "hit", name = name, x = x, y = y, z = z, dmg = dmg, dtype = dtype, dir = { X = dx, Y = dy, Z = dz } })
@@ -148,6 +155,13 @@ function M.new(log)
     end
 
     local function apply(ev)
+        if ev.kind == "player" then
+            local me = aggro.localPlayer()
+            if not valid(me) then return false, "no player" end
+            local ok, err = pcall(function() me:DealDamageToPlayer(ev.dmg) end)
+            if ok then D.stats.playerHits = (D.stats.playerHits or 0) + 1 end
+            return ok, err
+        end
         local gs = StaticFindObject("/Script/Engine.Default__GameplayStatics")
         local dt = classOf(ev.dtype)
         if not dt then return false, "unknown damage type " .. tostring(ev.dtype) end

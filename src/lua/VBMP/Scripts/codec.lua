@@ -47,6 +47,7 @@ M.T = {
     WIPE = 24,          -- ""           host -> clients: the whole team is down, the run fails (downed.lua)
     INTERACT = 25,      -- "<s1fffB"    someone used a chest/switch/lever/obelisk: exact class name,
                         --              its location, 1 = hold interaction (interact.lua)
+    PLAYER_HIT = 26,    -- "<f"         host -> one client: damage an enemy dealt to your stand-in (melee)
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -78,6 +79,7 @@ local BODY = {
     [M.T.TIMESTOP] = "<f",
     [M.T.WIPE] = "",
     [M.T.INTERACT] = "<s1fffB",
+    [M.T.PLAYER_HIT] = "<f",
 }
 
 -- s1 strings hold at most 255 bytes.

@@ -376,6 +376,7 @@ local function selfTest()
         { T.REVIVE, 76561197960265730 },
         { T.TIMESTOP, 3.5 },
         { T.INTERACT, "BP_PuzzleLever_C", 1.5, 2.5, 3.5, 1 },
+        { T.PLAYER_HIT, 20 },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }
     local sender = 76561197960265729
