@@ -30,6 +30,7 @@ local MAX_HIT = 100000
 -- DealDamageToPlayer (15 per hit; the enemy's own shots did 18.75 - its multiplier is not replayed).
 local PC_FIRE = "/Game/ProjectLima/Blueprints/Modes/PC_LimaPlayerController.PC_LimaPlayerController_C:FireProjectileFromPool"
 local MAX_SHOTS_QUEUED = 64
+local DROPS_ON_CLIENTS = true
 
 -- UE rotator <-> quaternion (roll 0), degrees.
 local function quatToPY(q)
@@ -494,7 +495,10 @@ function M.new(log, hud)
                 end
                 if e.dieQueued and not e.dead then
                     e.dead = true
-                    local ok, err = pcall(function() e.actor:DeathEvent(true) end)   -- true = no drops
+                    -- Co-op rule "everyone gets a copy" (user, 2026-11-05): the mirror drops loot in
+                    -- this client's own world (DeathEvent(BypassDrops? = false)), so every player
+                    -- picks up their own money/ammo/health. The host's enemy drops on the host.
+                    local ok, err = pcall(function() e.actor:DeathEvent(not DROPS_ON_CLIENTS) end)
                     log("enemies: mirror #" .. id .. " death " .. (ok and "played" or ("FAILED: " .. tostring(err))))
                 end
             end
