@@ -1,0 +1,19 @@
+﻿# local-only research output (game file lists, dumps) - never publish
+research/_local/
+
+# anything derived from the game must stay out of the repo
+*.usmap
+*.pak
+*.utoc
+*.ucas
+*.uasset
+*.umap
+aes_key*
+CXXHeaderDump/
+UHTHeaderDump/
+UE4SS_ObjectDump.txt
+UE4SS.log
+*.dmp
+
+# built packages
+dist/
