@@ -60,6 +60,8 @@ function M.new(opts)
     -- World sync (worldsync.lua): the joining client loads the host's save.
     local worldsync = opts.worldsync
     local worldResendAt = nil
+    -- Point/radial damage forwarding (damagesync.lua).
+    local damagesync = opts.damagesync
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
     local hud = opts.hud
@@ -169,6 +171,7 @@ function M.new(opts)
             end
             if destruction then destruction.setRole("host") end
             if worldsync then worldsync.setRole("host") end
+            if damagesync then damagesync.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -189,6 +192,7 @@ function M.new(opts)
             if enemies then enemies.setRole("client") end
             if destruction then destruction.setRole("client") end
             if worldsync then worldsync.setRole("client") end
+            if damagesync then damagesync.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
@@ -209,6 +213,7 @@ function M.new(opts)
         if enemies then pcall(enemies.clear) end
         if destruction then pcall(destruction.clear) end
         if worldsync then pcall(worldsync.clear) end
+        if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
     end
@@ -259,7 +264,7 @@ function M.new(opts)
     -----------------------------------------------------------------------------------------
 
     local function onPacket(bytes)
-        local kind, sender, a, b, c, d, e, f, g = codec.decode(bytes)
+        local kind, sender, a, b, c, d, e, f, g, h, i, j, k, l = codec.decode(bytes)
         if not kind then
             log("bad packet: " .. tostring(sender))
             return
@@ -344,6 +349,13 @@ function M.new(opts)
             -- client hit intent: the host applies it through the game's own damage path
             if S.mode ~= "host" or not knownPeer(sender) or not enemies then return end
             enemies.hostOnHit(sender, a, b, c, d, e, f, g)
+        elseif kind == T.DST_HIT then
+            if damagesync and S.mode == "host" and knownPeer(sender) then damagesync.onHit(a, b, c, d, e, f, g, h, i) end
+        elseif kind == T.RADIAL then
+            if not damagesync then return end
+            if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
+                damagesync.onRadial(a, b, c, d, e, f, g, h, i, j, k, l)
+            end
         elseif kind == T.WORLD_SAVE then
             if worldsync and S.mode == "client" and sender == S.hostId then worldsync.onChunk(a, b, c, d) end
         elseif kind == T.DST_BREAK then
@@ -454,6 +466,18 @@ function M.new(opts)
                 end
             end, lastLevelSent)
             if not ok then log("destruction tick failed: " .. tostring(err)) end
+        end
+        if damagesync and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
+            local near = {}
+            for id, p in pairs(S.peers) do
+                if p.pos and (not lastLevelSent or p.level == lastLevelSent) then table.insert(near, { id = id, pos = p.pos }) end
+            end
+            local ok, err = pcall(damagesync.tick, {
+                remote = near,
+                sendTo = function(id, kind, ...) send(id, T[kind], true, ...) end,
+                sendHost = function(kind, ...) if S.hostId then send(S.hostId, T[kind], true, ...) end end,
+            })
+            if not ok then log("damagesync tick failed: " .. tostring(err)) end
         end
         if enemies and S.mode == "client" and S.hostId then
             local ok, err = pcall(enemies.clientFlushHits, function(kind, reliable, ...)

@@ -78,6 +78,10 @@ function M.localPlayer()
     return nil
 end
 
+-- Shared "a remote result is being applied" flag: damage hooks in other modules must not report
+-- damage that we apply on someone else's behalf (destruction.lua sets it, damagesync.lua reads it).
+M.busy = false
+
 local function findClass(path)
     local c = StaticFindObject(path)
     if valid(c) then return c end
@@ -379,6 +383,13 @@ function M.new(log, E)
             local who = A.assigned[r.id]
             local t = who and who ~= "host" and targetActor(who) or nil
             if t and valid(r.proj) then
+                -- Homing bullets (Enum_EnemyProjectileType 5/6 = BP_PRJ_Enemy_HomingFast/Strong_C,
+                -- self-test 2026-11-05) would steer back to player 0 = the host: switch homing off
+                -- on the host's copy (SetHomingNone + ProjectileMovement.bIsHomingProjectile).
+                -- The client's replayed copy homes on the client's own player, as intended.
+                -- Not verified against a real homing enemy yet.
+                pcall(function() r.proj:SetHomingNone() end)
+                pcall(function() r.proj.ProjectileMovement.bIsHomingProjectile = false end)
                 local ok, err = pcall(function()
                     local pm = r.proj.ProjectileMovement
                     local v = pm.Velocity

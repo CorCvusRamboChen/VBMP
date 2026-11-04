@@ -139,6 +139,7 @@ local enemies = require("enemies").new(log, hud)
 local destruction = require("destruction").new(log)
 local saveguard = require("saveguard").new(log)
 local worldsync = require("worldsync").new(log)
+local damagesync = require("damagesync").new(log)
 local session = nil
 local lastNow = nil
 
@@ -193,6 +194,7 @@ local function startSession(mode, hostId, via)
         enemies = (mode ~= "loopback") and enemies or nil,
         destruction = (mode ~= "loopback") and destruction or nil,
         worldsync = (mode ~= "loopback") and worldsync or nil,
+        damagesync = (mode ~= "loopback") and damagesync or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
     })
@@ -362,6 +364,8 @@ local function selfTest()
         { T.ENEMY_HIT, 7, 12.5, "/Game/ProjectLima/Blueprints/Damage/DamageType_Normal.DamageType_Normal_C", 0.5, -0.25, 0, "head" },
         { T.ENEMY_SHOT, 7, 100.5, -2.25, 300, 1.5, -3.25, 0 },
         { T.WORLD_SAVE, 3, 200588, 30000, "GVAS\0\1\2" },
+        { T.DST_HIT, "BP_DST_M25_4x4_Floor_C_UAID_X", 1.5, -2.5, 3.5, 50, "/Game/D.D_C", 0, 0, -1 },
+        { T.RADIAL, 1, 10.5, 20.5, 30.5, 25, 20, 50, 225, 0, 0, 3, "/Game/E.E_C" },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }
     local sender = 76561197960265729

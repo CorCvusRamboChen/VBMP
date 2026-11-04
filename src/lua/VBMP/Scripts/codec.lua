@@ -35,6 +35,12 @@ M.T = {
     DST_BREAK = 18,     -- "<s1fff"     actor name (contains the UAID), actor location x/y/z
     -- world sync (worldsync.lua): host -> joining client, the host's save file in chunks
     WORLD_SAVE = 19,    -- "<I4I4I4s2"  transfer id, total bytes, offset, chunk bytes
+    -- damage forwarding (damagesync.lua)
+    DST_HIT = 20,       -- "<s1ffffs1fff" client -> host: destructible name, its x/y/z, damage, damage
+                        --                type class path, hit direction x/y/z
+    RADIAL = 21,        -- "<BffffffffBBs1" either way: 0 ApplyRadialDamage / 1 ...WithFalloff, origin
+                        --                x/y/z, base, min, inner, outer, falloff, full damage, channel,
+                        --                damage type class path
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -60,6 +66,8 @@ local BODY = {
     [M.T.ENEMY_SHOT] = "<I4fffffB",
     [M.T.DST_BREAK] = "<s1fff",
     [M.T.WORLD_SAVE] = "<I4I4I4s2",
+    [M.T.DST_HIT] = "<s1ffffs1fff",
+    [M.T.RADIAL] = "<BffffffffBBs1",
 }
 
 -- s1 strings hold at most 255 bytes.
@@ -75,7 +83,9 @@ function M.encode(kind, sender, ...)
     if kind == M.T.HELLO then args[2] = clip(args[2], 255)
     elseif kind == M.T.WELCOME or kind == M.T.REJECT or kind == M.T.DRAG_ITEM then args[1] = clip(args[1], 255)
     elseif kind == M.T.ENEMY_HIT then args[3] = clip(args[3], 255); args[7] = clip(args[7], 255)
-    elseif kind == M.T.DST_BREAK then args[1] = clip(args[1], 255) end
+    elseif kind == M.T.DST_BREAK then args[1] = clip(args[1], 255)
+    elseif kind == M.T.DST_HIT then args[1] = clip(args[1], 255); args[6] = clip(args[6], 255)
+    elseif kind == M.T.RADIAL then args[12] = clip(args[12], 255) end
     local body = fmt ~= "" and string.pack(fmt, table.unpack(args, 1, select("#", ...))) or ""
     return string.pack(HDR, "VB", M.VERSION, kind, sender) .. body
 end

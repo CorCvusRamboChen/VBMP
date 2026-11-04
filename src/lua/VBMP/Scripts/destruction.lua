@@ -136,10 +136,12 @@ function M.new(log)
         local hp = obj.CurrentHealth
         if type(hp) ~= "number" or hp < 0 then hp = 0 end
         applying = true
+        require("aggro").busy = true
         local ok, err = pcall(function()
             gs:ApplyPointDamage(obj, hp + 1, { X = 0, Y = 0, Z = -1 }, {}, valid(pc) and pc or nil, valid(me) and me or nil, dt)
         end)
         applying = false
+        require("aggro").busy = false
         if not ok then log("destruction: applying " .. ev.name .. " failed: " .. tostring(err)) end
         S.stats.applied = S.stats.applied + 1
         if S.stats.applied <= 5 then log("destruction: applied " .. ev.name) end
