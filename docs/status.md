@@ -86,6 +86,7 @@
 | 3.4 | 敌人子弹打客户端：房主 hook `PC_LimaPlayerController_C:FireProjectileFromPool(Transform, 类型, 敌人的 AI_Controller)`，按控制器的 Pawn 查 NetID；离枪口最近的玩家如果是客户端，就只发给它 `ENEMY_SHOT`（枪口位置 + 相对"正对目标"的俯仰/偏航偏差 + 子弹类型）；客户端用自己的 `FireProjectileFromPool(…, nil)` 朝自己的玩家重放，伤害走客户端自己的 `DealDamageToPlayer` | 双实例：grunt 离 B 400、离 A 1600 → A 转发 18 发、B 重放 18 发，偏差 0.0°/-0.4°，B 被打中 4 次（110→50） | ✅ 2026-11-04 23:32 |
 | 3.4b | 分仇恨：房主替身 + 改目标 + 房主子弹改飞替身 + 按指定目标转发子弹（`aggro.lua`，设计见 `research/phase3-05-enemy-aggro.md`） | 双实例：步兵锁定 B 的替身，20 s 内跟在替身 300–900 范围内；24 发全部转发给 B 并重放（B 110→35），房主 0 次被打，20 发房主子弹改向；房主打它一下就切回房主；B 离开后替身删除、敌人还给房主，没有崩溃 | ✅ 2026-11-05 02:49 |
 | 3.5 | 破坏同步："物体碎了"事件（actor 名含 UAID + 坐标），双向，房主转发，中途加入补发（`destruction.lua`，`research/phase3-06-destruction.md`） | 双实例：A 打碎地砖/玻璃 → B 同步碎掉；B 打碎地砖 → A 碎掉；没有回声；B 中途加入后补上 A 之前打碎的两块 | ✅ 2026-11-05 04:07 |
+| 3.6 | 客户端存档保护：联机当客户端时把 `GI.SlotName` 换成 `VBMP_client`（先复制真实存档过去），同步存档和删档的原生 hook 作为第二层；离开后保持到回主菜单再换回（`saveguard.lua`） | 单实例：客户端身份下同步+异步存档都写进 `VBMP_client.sav`，`LimaSaveGame.sav` 时间戳不变；回主菜单后 2 秒内换回，继续游戏后存档正常写回真实存档 | ✅ 2026-11-05 04:22 |
 
 3.4 的已知缺口（下一步候选）：
 - **分仇恨（3.4b）的缺口**：

@@ -47,6 +47,8 @@
 - 复发器是靠"多装几个同样的组件"实现多次触发，不是改 `ExecutionFrequency`
 - 蓝图函数的 hook 回调里改结构体参数（`t:get().Translation.Z = …` 或 `t:set({...})`）读回来变了，但没能证实对实际调用生效（2026-11-04 `FireProjectileFromPool`：改了以后玩家仍被打中）。不要靠改参数来"改写"游戏的调用
 - `PC_LimaPlayerController_C:FireProjectileFromPool(Transform, 0, nil)` 可以从脚本安全地发一颗敌人子弹，会正常伤害本地玩家（15）
+- **原生函数** hook 里改参数**能生效**（2026-11-05：`GameplayStatics:SaveGameToSlot` 的槽名改了以后，游戏真的写到了新文件）；蓝图函数的不行
+- 存档：`GI_LimaGameInstance_C.SlotName`（FString，默认 `LimaSaveGame`）决定读写哪个槽；游戏用的异步存档不经过任何可 hook 的 UFunction，只能靠改这个变量拦。客户端存档保护见 `src/lua/VBMP/Scripts/saveguard.lua`
 - `RegisterHook` 的后置回调对蓝图函数不触发（2026-11-05 SeePawn 实测：前置 26 次、后置 0 次）。结构体出参（如 `K2_ProjectPointToNavigation` 的 `ProjectedLocation`）不会写回 Lua 表，标量出参可以
 - 可以从脚本生成第二个 `CH_LimaCharacter_C`（不附身）当替身，游戏稳定；之后 `FindFirstOf("CH_LimaCharacter_C")` 可能拿到替身，本地玩家要用 `pc().Pawn`。替身不能用 `SetActorHiddenInGame` 隐藏（PawnSensing 跳过隐藏的 Pawn），要隐藏组件
 - 敌人开火瞄准写死 `GetPlayerCharacter(0)`；子弹 `BP_EnemyProjectile_Master_C` 在 `ActivateProjectile?` 里记下，下一帧改 `ProjectileMovement.Velocity` 可以改向（父类和 `BP_PRJ_Enemy_Basic_C` 都要 hook）。详见 `research/phase3-05-enemy-aggro.md`

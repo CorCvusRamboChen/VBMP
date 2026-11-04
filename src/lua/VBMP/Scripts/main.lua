@@ -118,11 +118,13 @@ local hud = require("hud")
 hud.start({ log = log })
 local enemies = require("enemies").new(log, hud)
 local destruction = require("destruction").new(log)
+local saveguard = require("saveguard").new(log)
 local session = nil
 local lastNow = nil
 
 local function stopSession()
     if session then
+        if session.mode == "client" then pcall(saveguard.clientStopped) end
         pcall(session.stop)
         log("session stopped")
     end
@@ -146,6 +148,8 @@ end
 local function startSession(mode, hostId, via)
     stopSession()
     if mode ~= "loopback" then pcall(backupSave, mode) end
+    -- Before anything can save: a client must never write its real save (saveguard.lua).
+    if mode == "client" then saveguard.clientStarted() end
     local tr
     if mode == "loopback" then
         tr = transport.loopback(log, LOOPBACK_DELAY)
@@ -229,7 +233,10 @@ local function netStep()
     lastNow = now
 
     cmdTimer = cmdTimer + dt
-    if cmdTimer >= 0.25 then cmdTimer = 0; readCommand() end
+    if cmdTimer >= 0.25 then
+        cmdTimer = 0
+        readCommand()
+    end
 
     if session then
         session.update(now, dt, localState())
@@ -281,6 +288,10 @@ end
 -- game thread; that data race corrupted values (numbers turning into strings/functions) and
 -- crashed the game (self-test 2026-11-04).
 LoopInGameThreadWithDelay(NET_MS, function() guarded("net", netStep) end)
+
+-- Save guard on its own loop: the net loop pauses while levels change, and the slot must be
+-- switched back as soon as the main menu shows (before the player can press Continue).
+LoopInGameThreadWithDelay(250, function() guarded("saveguard", saveguard.tick) end)
 
 -- Slot claim runs on its own: netStep needs the gameplay controller, but a second instance
 -- sitting in the main menu must already be addressable (self-test 2026-11-04).
