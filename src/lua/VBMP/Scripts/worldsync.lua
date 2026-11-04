@@ -40,13 +40,13 @@ function M.new(log)
         rx = nil,          -- client: { id, total, parts = { [offset] = bytes }, got }
         phase = nil,       -- client: nil | "menu" | "continue" | "loading" | "done"
         phaseAt = 0,
-        loadedOnce = false,
+        lastLoaded = 0,    -- client: id of the last transfer loaded (the host numbers them)
         stats = { sentBytes = 0, recvBytes = 0, loads = 0 },
     }
     local now = 0
 
     function W.setRole(role)
-        W.role, W.rx, W.phase, W.loadedOnce = role, nil, nil, false
+        W.role, W.rx, W.phase, W.lastLoaded = role, nil, nil, 0
     end
 
     -- Host: save now and send the slot file to one client. sendTo(id, total, offset, bytes).
@@ -69,7 +69,7 @@ function M.new(log)
 
     -- Client: one chunk from the host.
     function W.onChunk(id, total, offset, bytes)
-        if W.role ~= "client" or W.loadedOnce then return end
+        if W.role ~= "client" or id <= W.lastLoaded then return end
         if type(total) ~= "number" or total <= 0 or total > 64 * 1024 * 1024 then return end
         if not W.rx or W.rx.id ~= id then W.rx = { id = id, total = total, parts = {}, got = 0 } end
         local rx = W.rx
@@ -91,8 +91,8 @@ function M.new(log)
         f:write(data)
         f:close()
         log(string.format("worldsync: got the host save (%d bytes), loading the host world", #data))
-        W.loadedOnce = true
-        W.phase, W.phaseAt = "menu", now
+        W.lastLoaded = id
+        W.phase, W.phaseAt, W.menuSent = "menu", now, nil
     end
 
     local function console(cmd)

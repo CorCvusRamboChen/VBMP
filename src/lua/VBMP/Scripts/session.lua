@@ -25,7 +25,7 @@ local HELLO_GIVE_UP = 30.0
 local PING_EVERY = 2.0
 local LEVEL_EVERY = 5.0
 local ACCEPT_SCAN_EVERY = 2.0
-local TIMEOUT = 10.0
+local TIMEOUT = 45.0        -- level loads stall the game thread (and our loops) for many seconds
 local FRIEND_IMMEDIATE = 3
 
 local function valid(o) return o ~= nil and o:IsValid() end
@@ -59,6 +59,7 @@ function M.new(opts)
     local destruction = opts.destruction
     -- World sync (worldsync.lua): the joining client loads the host's save.
     local worldsync = opts.worldsync
+    local worldResendAt = nil
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
     local hud = opts.hud
@@ -265,6 +266,9 @@ function M.new(opts)
         end
         if S.mode == "loopback" then sender = tr.fakePeer end
         if sender == tr.selfId then return end
+        -- Any packet keeps a peer alive (a host in the main menu or a loading screen sends no STATE).
+        local seen = S.peers[sender]
+        if seen then seen.lastSeen = S.now end
 
         if kind == T.HELLO and S.mode == "host" then
             if a ~= M.MOD_BUILD then
@@ -368,8 +372,20 @@ function M.new(opts)
         if S.state == "failed" or S.state == "stopped" then return end
 
         if localState and localState.level ~= lastLevelSent then
+            -- Host moved from one level to another: clients follow by reloading the new save,
+            -- a few seconds later so the game has saved the new level itself (worldsync.lua).
+            if S.mode == "host" and worldsync and lastLevelSent then worldResendAt = now + 3 end
             lastLevelSent = localState.level
             timers.level = LEVEL_EVERY      -- send right away
+        end
+        if worldResendAt and now >= worldResendAt then
+            worldResendAt = nil
+            for id in pairs(S.peers) do
+                local ok, err = pcall(worldsync.hostSendTo, function(tid, total, off, bytes)
+                    send(id, T.WORLD_SAVE, true, tid, total, off, bytes)
+                end)
+                if not ok then log("worldsync resend failed: " .. tostring(err)) end
+            end
         end
 
         if S.mode == "client" and S.state == "connecting" then
