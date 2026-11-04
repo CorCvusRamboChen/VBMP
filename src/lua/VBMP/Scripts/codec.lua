@@ -41,6 +41,8 @@ M.T = {
     RADIAL = 21,        -- "<BffffffffBBs1" either way: 0 ApplyRadialDamage / 1 ...WithFalloff, origin
                         --                x/y/z, base, min, inner, outer, falloff, full damage, channel,
                         --                damage type class path
+    -- co-op rules (downed.lua)
+    REVIVE = 22,        -- "<i8"        the downed player being revived (SteamID64); the host forwards
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -68,6 +70,7 @@ local BODY = {
     [M.T.WORLD_SAVE] = "<I4I4I4s2",
     [M.T.DST_HIT] = "<s1ffffs1fff",
     [M.T.RADIAL] = "<BffffffffBBs1",
+    [M.T.REVIVE] = "<i8",
 }
 
 -- s1 strings hold at most 255 bytes.

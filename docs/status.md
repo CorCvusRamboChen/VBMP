@@ -109,6 +109,14 @@
 
 自测方法（3.2）：引擎的 `GameplayStatics.ApplyDamage(敌人, 伤害, PC, 玩家, DamageType_Normal_C)` 走游戏的真实伤害流程（`ReceiveAnyDamage` → `SetHealth`）。**DamageType 传 nil 时不扣血**（`IncomingDamageFromHit` 会记下，但血量不变）。`CH_AI_Base_C.SpawnEnemyImmediate` 需要 1 个参数 `KnowsPlayer?`。
 
+## Phase 4 — 合作规则
+
+| 步骤 | 内容 | 验收 | 状态 |
+|---|---|---|---|
+| 4.1 | 倒地 + 复活（`downed.lua`，消息 `REVIVE` 22，`PLAYER_HP` 的倒地位）：有队友在线时，致命一击在 `DealDamageToPlayer` 前置 hook 里打开 `Debug_GodMode`（实测它、`DEBUG_TempGodMode?`、`bCanBeDamaged=false` 都能挡伤害）；倒地后移动 150、可开枪，45 秒流血；队友在 250 以内站 3 秒即复活（回 30% 血）；超时或队友全走则关无敌并施加致命伤害，走游戏自己的死亡流程 | 双实例：B 吃 200 伤害 → 倒地（画面"你倒地了/等待队友复活"，无死亡画面，血量显示 0）；A 走到旁边 3 秒后 B 复活 33/110、速度恢复 800；第二次倒地无人救 → 45 秒后死亡并在同一世界重生，联机不断，存档仍写 `VBMP_client` | ✅ 2026-11-05 05:18 |
+
+已知：倒地那一下的扣血没挡住（血量会到 0，但不会死）；房主死亡时客户端的处理没有专门设计。
+
 ## 设计决定（见 `docs/coop-rules.md`）
 
 1. 时停：全员生效

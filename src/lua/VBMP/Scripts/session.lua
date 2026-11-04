@@ -62,6 +62,9 @@ function M.new(opts)
     local worldResendAt = nil
     -- Point/radial damage forwarding (damagesync.lua).
     local damagesync = opts.damagesync
+    -- Downed + revive (downed.lua).
+    local downed = opts.downed
+    local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
     local hud = opts.hud
@@ -213,6 +216,7 @@ function M.new(opts)
         if enemies then pcall(enemies.clear) end
         if destruction then pcall(destruction.clear) end
         if worldsync then pcall(worldsync.clear) end
+        if downed then pcall(downed.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -224,13 +228,15 @@ function M.new(opts)
         timers.hp = timers.hp + dt
         timers.hpForce = timers.hpForce + dt
         if localState and type(localState.hp) == "number" and timers.hp >= 0.1 then
-            local changed = lastHp == nil or math.abs(localState.hp - lastHp) >= 1
+            local downFlag = (downed and downed.downed) and 1 or 0
+            local changed = lastHp == nil or math.abs(localState.hp - lastHp) >= 1 or downFlag ~= lastDownFlag
             if changed or timers.hpForce >= 2 then
                 timers.hp, timers.hpForce = 0, 0
-                lastHp = localState.hp
+                lastHp, lastDownFlag = localState.hp, downFlag
                 local maxHp = type(localState.maxHp) == "number" and localState.maxHp or 0
-                local bytes = codec.encode(T.PLAYER_HP, tr.selfId, localState.hp, maxHp, 0)
-                for _, id in ipairs(targets) do sendRaw(id, bytes, false) end
+                local bytes = codec.encode(T.PLAYER_HP, tr.selfId, localState.hp, maxHp, downFlag)
+                -- reliable when the downed flag is in it: a lost "downed" would strand the player
+                for _, id in ipairs(targets) do sendRaw(id, bytes, downFlag == 1) end
             end
         end
 
@@ -325,6 +331,8 @@ function M.new(opts)
         elseif kind == T.PLAYER_HP then
             if not knownPeer(sender) then return end
             H("setTeammate", sender, { hp = a, maxHp = b, downed = ((c or 0) & 1) ~= 0 })
+            local pp = S.peers[sender]
+            if pp then pp.downed = ((c or 0) & 1) ~= 0 end
             relay(sender, bytes, false)
         elseif kind == T.CURSOR then
             if not knownPeer(sender) then return end
@@ -355,6 +363,13 @@ function M.new(opts)
             if not damagesync then return end
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 damagesync.onRadial(a, b, c, d, e, f, g, h, i, j, k, l)
+            end
+        elseif kind == T.REVIVE then
+            if not downed or not knownPeer(sender) then return end
+            if a == tr.selfId then
+                downed.onRevived(S.peers[sender] and S.peers[sender].name)
+            elseif S.mode == "host" and S.peers[a] then
+                sendRaw(a, bytes, true)                       -- client revives client: forward
             end
         elseif kind == T.WORLD_SAVE then
             if worldsync and S.mode == "client" and sender == S.hostId then worldsync.onChunk(a, b, c, d) end
@@ -466,6 +481,22 @@ function M.new(opts)
                 end
             end, lastLevelSent)
             if not ok then log("destruction tick failed: " .. tostring(err)) end
+        end
+        if downed and S.mode ~= "loopback" then
+            local mates = {}
+            for id, p in pairs(S.peers) do
+                if not lastLevelSent or p.level == lastLevelSent then
+                    mates[id] = { name = p.name, pos = p.pos, downed = p.downed }
+                end
+            end
+            local ok, err = pcall(downed.tick, dt, {
+                teammates = mates,
+                sendRevive = function(id)
+                    if S.mode == "host" then send(id, T.REVIVE, true, id)
+                    elseif S.hostId then send(S.hostId, T.REVIVE, true, id) end
+                end,
+            })
+            if not ok then log("downed tick failed: " .. tostring(err)) end
         end
         if damagesync and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
             local near = {}
