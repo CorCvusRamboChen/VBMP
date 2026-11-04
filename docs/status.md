@@ -117,6 +117,7 @@
 | 4.2 | 时停全员生效（`timestop.lua`，消息 `TIMESTOP` 23）：hook `PC_LimaPlayerController_C.ABL_ActivateChronoHold?`（实测它调用 `FreezeTime`+`FreezeBH`，duration 秒后 `ResumeTime`+`ResumeBH`，全局时间流速不变）；本地激活发给房主，房主应用（冻住真敌人）并转发给其他客户端 | 双实例：B 用 3 秒时停 → A 上的步兵坐标在 3.6–6.1 s 不动，之后继续移动 | ✅ 2026-11-05 05:22 |
 | 4.3 | 掉落每人一份：客户端镜像敌人死亡改为 `DeathEvent(false)`（允许掉落），每个玩家在自己的世界里拿到自己的掉落（`enemies.lua` 的 `DROPS_ON_CLIENTS`） | 双实例：A 打死步兵 → A 的 VoidCoins 759→762，B 自己的镜像掉落也让 B 759→762（币自动飞向玩家） | ✅ 2026-11-05 05:29（弹药/血包/模组掉落没单独验证；脚本生成的敌人掉落很少） |
 | 4.1b | 倒地规则对齐 `coop-rules.md`：按住交互键（`IsInputKeyDown` 查 E / 手柄 X）在 250 以内 3 秒才复活，靠近但没按键时显示提示；去掉个人流血倒计时；房主看到全员倒地时发 `WIPE`（24），所有人走游戏自己的死亡流程；身边没有队友时直接死亡 | 双实例：A 站在倒地的 B 旁 6 秒不按键 → 不复活；按住（测试命令 `revivehold` 模拟）→ B 复活 33/110；B、A 先后倒地 → 两边同一秒"whole team down"并死亡 | ✅ 2026-11-05 05:38（真实按键未测：我没法在测试里按键） |
+| 4.4 | 交互同步（`interact.lua`，消息 `INTERACT` 25）：本地玩家对宝箱（`BP_ItemChest_Master`、`BP_Voidium_ItemChest`、`BP_LootChest_Master` 及其不覆盖的子类）、开关（`BP_Monitor_Switch(_Zone)`、`BP_DigiDoor_Switch`、`BP_SwitchAct(_01)`）、拉杆（`BP_PuzzleLever`）、方尖碑的 `InteractObjectQuick/Hold`，在其他人那份"同类 + 坐标取整 50"的物体上重放；宝箱各自开、各自掉落（每人一份）。不重放：拾取物、终端、商店、制造台、回收站、研究所、腐化器（个人效果）、传送器、电梯、地图连接点、滑索 | 双实例：两边同坐标生成的宝箱，A 打开 → B 的 `ChestOpened?` 也变 true；B 拉拉杆 → A 收到并重放（脚本生成的拉杆两边都不响应，`On?` 不变，关卡里的真拉杆待实际验证） | ✅ 2026-11-05 05:44 |
 
 已知：倒地那一下的扣血没挡住（血量会到 0，但不会死）。
 

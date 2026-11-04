@@ -45,6 +45,8 @@ M.T = {
     REVIVE = 22,        -- "<i8"        the downed player being revived (SteamID64); the host forwards
     TIMESTOP = 23,      -- "<f"         someone used time stop for this many seconds (timestop.lua)
     WIPE = 24,          -- ""           host -> clients: the whole team is down, the run fails (downed.lua)
+    INTERACT = 25,      -- "<s1fffB"    someone used a chest/switch/lever/obelisk: exact class name,
+                        --              its location, 1 = hold interaction (interact.lua)
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -75,6 +77,7 @@ local BODY = {
     [M.T.REVIVE] = "<i8",
     [M.T.TIMESTOP] = "<f",
     [M.T.WIPE] = "",
+    [M.T.INTERACT] = "<s1fffB",
 }
 
 -- s1 strings hold at most 255 bytes.
@@ -92,7 +95,8 @@ function M.encode(kind, sender, ...)
     elseif kind == M.T.ENEMY_HIT then args[3] = clip(args[3], 255); args[7] = clip(args[7], 255)
     elseif kind == M.T.DST_BREAK then args[1] = clip(args[1], 255)
     elseif kind == M.T.DST_HIT then args[1] = clip(args[1], 255); args[6] = clip(args[6], 255)
-    elseif kind == M.T.RADIAL then args[12] = clip(args[12], 255) end
+    elseif kind == M.T.RADIAL then args[12] = clip(args[12], 255)
+    elseif kind == M.T.INTERACT then args[1] = clip(args[1], 255) end
     local body = fmt ~= "" and string.pack(fmt, table.unpack(args, 1, select("#", ...))) or ""
     return string.pack(HDR, "VB", M.VERSION, kind, sender) .. body
 end

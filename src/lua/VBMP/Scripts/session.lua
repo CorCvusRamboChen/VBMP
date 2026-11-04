@@ -66,6 +66,8 @@ function M.new(opts)
     local downed = opts.downed
     -- Time stop for everyone (timestop.lua).
     local timestop = opts.timestop
+    -- Chests, switches, levers, obelisks (interact.lua).
+    local interact = opts.interact
     local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
@@ -177,6 +179,7 @@ function M.new(opts)
             if destruction then destruction.setRole("host") end
             if worldsync then worldsync.setRole("host") end
             if damagesync then damagesync.setRole("host") end
+            if interact then interact.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -198,6 +201,7 @@ function M.new(opts)
             if destruction then destruction.setRole("client") end
             if worldsync then worldsync.setRole("client") end
             if damagesync then damagesync.setRole("client") end
+            if interact then interact.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
@@ -220,6 +224,7 @@ function M.new(opts)
         if worldsync then pcall(worldsync.clear) end
         if downed then pcall(downed.clear) end
         if timestop then pcall(timestop.clear) end
+        if interact then pcall(interact.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -367,6 +372,11 @@ function M.new(opts)
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 damagesync.onRadial(a, b, c, d, e, f, g, h, i, j, k, l)
             end
+        elseif kind == T.INTERACT then
+            if not interact then return end
+            if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
+                interact.onRemote(a, b, c, d, e, sender)
+            end
         elseif kind == T.WIPE then
             if downed and S.mode == "client" and sender == S.hostId then downed.onWipe() end
         elseif kind == T.TIMESTOP then
@@ -491,6 +501,16 @@ function M.new(opts)
                 end
             end, lastLevelSent)
             if not ok then log("destruction tick failed: " .. tostring(err)) end
+        end
+        if interact and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
+            local ok, err = pcall(interact.tick, dt, function(cls, x, y, z, hold, except)
+                if S.mode == "host" then
+                    for _, id in ipairs(targets) do if id ~= except then send(id, T.INTERACT, true, cls, x, y, z, hold) end end
+                else
+                    send(S.hostId, T.INTERACT, true, cls, x, y, z, hold)
+                end
+            end)
+            if not ok then log("interact tick failed: " .. tostring(err)) end
         end
         if timestop and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
             local ok, err = pcall(timestop.tick, function(d, except)
