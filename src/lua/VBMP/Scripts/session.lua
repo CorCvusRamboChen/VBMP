@@ -18,7 +18,7 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 1                  -- bump when the protocol or sync behaviour changes
+M.MOD_BUILD = 2                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
