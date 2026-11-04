@@ -55,8 +55,21 @@ local function dist2(a, b) local dx, dy, dz = a.X - b.X, a.Y - b.Y, a.Z - b.Z; r
 
 -- The local player is the controller's pawn: with stand-ins alive, FindFirstOf("CH_LimaCharacter_C")
 -- may return a stand-in.
-function M.localPlayer()
+-- The controller comes from the game instance's CURRENT world: after a level change
+-- FindFirstOf can still return the previous world's controller (world-sync test 2026-11-05).
+function M.localController()
+    local gi = FindFirstOf("GI_LimaGameInstance_C")
+    local gs = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+    if valid(gi) and valid(gs) then
+        local ok, pc = pcall(function() return gs:GetPlayerController(gi, 0) end)
+        if ok and valid(pc) then return pc end
+    end
     local pc = FindFirstOf("PC_LimaPlayerController_C")
+    return valid(pc) and pc or nil
+end
+
+function M.localPlayer()
+    local pc = M.localController()
     if valid(pc) then
         local p = nil
         pcall(function() p = pc.Pawn end)

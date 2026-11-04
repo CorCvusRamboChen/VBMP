@@ -57,6 +57,8 @@ function M.new(opts)
     local enemies = opts.enemies
     -- Destruction sync (destruction.lua), optional as well.
     local destruction = opts.destruction
+    -- World sync (worldsync.lua): the joining client loads the host's save.
+    local worldsync = opts.worldsync
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
     local hud = opts.hud
@@ -165,6 +167,7 @@ function M.new(opts)
                 pcall(enemies.hostAdoptPool, function() end)   -- ids for enemies already alive
             end
             if destruction then destruction.setRole("host") end
+            if worldsync then worldsync.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -184,6 +187,7 @@ function M.new(opts)
             log("connecting to " .. tostring(S.hostId))
             if enemies then enemies.setRole("client") end
             if destruction then destruction.setRole("client") end
+            if worldsync then worldsync.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
@@ -203,6 +207,7 @@ function M.new(opts)
         S.state = "stopped"
         if enemies then pcall(enemies.clear) end
         if destruction then pcall(destruction.clear) end
+        if worldsync then pcall(worldsync.clear) end
         H("setStatus", nil)
         H("clear")
     end
@@ -277,6 +282,12 @@ function M.new(opts)
             if destruction then
                 pcall(destruction.hostSendAll, function(n, x, y, z) send(sender, T.DST_BREAK, true, n, x, y, z) end)
             end
+            if worldsync then
+                local ok, err = pcall(worldsync.hostSendTo, function(id, total, off, bytes)
+                    send(sender, T.WORLD_SAVE, true, id, total, off, bytes)
+                end)
+                if not ok then log("worldsync send failed: " .. tostring(err)) end
+            end
         elseif kind == T.WELCOME and S.mode == "client" then
             if S.state ~= "connected" then log("connected to host " .. tostring(a)) end
             S.state = "connected"
@@ -329,6 +340,8 @@ function M.new(opts)
             -- client hit intent: the host applies it through the game's own damage path
             if S.mode ~= "host" or not knownPeer(sender) or not enemies then return end
             enemies.hostOnHit(sender, a, b, c, d, e, f, g)
+        elseif kind == T.WORLD_SAVE then
+            if worldsync and S.mode == "client" and sender == S.hostId then worldsync.onChunk(a, b, c, d) end
         elseif kind == T.DST_BREAK then
             if not destruction then return end
             if S.mode == "host" and knownPeer(sender) then destruction.onRemote(a, b, c, d, sender)

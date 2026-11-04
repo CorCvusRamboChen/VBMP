@@ -28,6 +28,21 @@ local HOOKS = {
 
 local function valid(o) return type(o) == "userdata" and o:IsValid() end
 
+-- Current level via the game instance (it outlives levels). FindFirstOf on menu classes is not
+-- enough: a menu controller/widget from an earlier visit can still be found after the level
+-- changed (dual test 2026-11-05).
+function M.levelName()
+    local gi = FindFirstOf("GI_LimaGameInstance_C")
+    local gs = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+    if not (gi and gi:IsValid() and gs and gs:IsValid()) then return nil end
+    local ok, n = pcall(function() return gs:GetCurrentLevelName(gi, true):ToString() end)
+    return ok and n or nil
+end
+function M.inMenu()
+    local n = M.levelName()
+    return n ~= nil and n:find("MainMenu", 1, true) ~= nil
+end
+
 local function copyFile(from, to)
     local src = io.open(from, "rb")
     if not src then return false end
@@ -108,13 +123,11 @@ function M.new(log)
         end
     end
 
-    -- Network loop: keep the slot switched; switch back at the main menu (its own controller
-    -- class - a world-name check through a cached controller missed it, self-test 2026-11-05).
+    -- Own loop: keep the slot switched; switch back at the main menu (M.inMenu).
     function G.tick()
         if not G.active then return end
         if G.untilMenu then
-            local menu = FindFirstOf("PC_LimaMainMenuController_C")
-            if valid(menu) then
+            if M.inMenu() then
                 G.active, G.untilMenu = false, false
                 setSlot(REAL_SLOT)
                 log("saveguard: OFF (main menu); the real save is in use again")

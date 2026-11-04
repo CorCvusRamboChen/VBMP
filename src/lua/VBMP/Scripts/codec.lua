@@ -33,6 +33,8 @@ M.T = {
                         --              target" (keeps spread and misses), Enum_EnemyProjectileType
     -- destruction (destruction.lua): either direction, the host relays
     DST_BREAK = 18,     -- "<s1fff"     actor name (contains the UAID), actor location x/y/z
+    -- world sync (worldsync.lua): host -> joining client, the host's save file in chunks
+    WORLD_SAVE = 19,    -- "<I4I4I4s2"  transfer id, total bytes, offset, chunk bytes
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -57,6 +59,7 @@ local BODY = {
     [M.T.ENEMY_HIT] = "<I4fs1fffs1",
     [M.T.ENEMY_SHOT] = "<I4fffffB",
     [M.T.DST_BREAK] = "<s1fff",
+    [M.T.WORLD_SAVE] = "<I4I4I4s2",
 }
 
 -- s1 strings hold at most 255 bytes.

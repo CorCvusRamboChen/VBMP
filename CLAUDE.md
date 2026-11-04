@@ -49,6 +49,8 @@
 - `PC_LimaPlayerController_C:FireProjectileFromPool(Transform, 0, nil)` 可以从脚本安全地发一颗敌人子弹，会正常伤害本地玩家（15）
 - **原生函数** hook 里改参数**能生效**（2026-11-05：`GameplayStatics:SaveGameToSlot` 的槽名改了以后，游戏真的写到了新文件）；蓝图函数的不行
 - 存档：`GI_LimaGameInstance_C.SlotName`（FString，默认 `LimaSaveGame`）决定读写哪个槽；游戏用的异步存档不经过任何可 hook 的 UFunction，只能靠改这个变量拦。客户端存档保护见 `src/lua/VBMP/Scripts/saveguard.lua`
+- **换关卡后的旧对象**：`FindFirstOf` 可能返回上一个世界的控制器、菜单控件，而且 `IsValid` 仍为真。本地控制器用 `GameplayStatics.GetPlayerController(GI, 0)`，当前关卡用 `GameplayStatics.GetCurrentLevelName(GI, true)`
+- `GameplayStatics.GetRealTimeSeconds(world)` 从当前世界启动开始计时，换关会倒退；需要连续时钟时只累加正的差值
 - `RegisterHook` 的后置回调对蓝图函数不触发（2026-11-05 SeePawn 实测：前置 26 次、后置 0 次）。结构体出参（如 `K2_ProjectPointToNavigation` 的 `ProjectedLocation`）不会写回 Lua 表，标量出参可以
 - 可以从脚本生成第二个 `CH_LimaCharacter_C`（不附身）当替身，游戏稳定；之后 `FindFirstOf("CH_LimaCharacter_C")` 可能拿到替身，本地玩家要用 `pc().Pawn`。替身不能用 `SetActorHiddenInGame` 隐藏（PawnSensing 跳过隐藏的 Pawn），要隐藏组件
 - 敌人开火瞄准写死 `GetPlayerCharacter(0)`；子弹 `BP_EnemyProjectile_Master_C` 在 `ActivateProjectile?` 里记下，下一帧改 `ProjectileMovement.Velocity` 可以改向（父类和 `BP_PRJ_Enemy_Basic_C` 都要 hook）。详见 `research/phase3-05-enemy-aggro.md`

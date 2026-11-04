@@ -75,15 +75,34 @@ local function realTime()
     return nil
 end
 
+-- Session clock. GetRealTimeSeconds counts from the CURRENT world's start, so it jumps back to
+-- ~0 on every level change; after a reload the session's timers sat hundreds of seconds in the
+-- negative and a client stopped sending (world-sync dual test 2026-11-05). Only forward steps
+-- are accumulated.
+local clock, lastRaw = 0, nil
+local function monoTime()
+    local raw = realTime()
+    if not raw then return nil end
+    if lastRaw and raw > lastRaw then clock = clock + math.min(raw - lastRaw, 0.5) end
+    lastRaw = raw
+    return clock
+end
+
 local player, pc, halfHeight = nil, nil, 88
 
+local aggroLib = require("aggro")
+
 local function localState()
-    if not valid(player) then
-        player = require("aggro").localPlayer()   -- not FindFirstOf: aggro stand-ins share the class
-        if not valid(player) then return nil end
-        halfHeight = player.CapsuleComponent:GetScaledCapsuleHalfHeight()
+    -- Looked up every time through the current world's controller: a cached pawn/controller from
+    -- the previous level can still pass IsValid after a level change (world-sync test 2026-11-05),
+    -- and FindFirstOf("CH_LimaCharacter_C") may return an aggro stand-in.
+    local p = aggroLib.localPlayer()
+    if not valid(p) then return nil end
+    if p ~= player then
+        player = p
+        pcall(function() halfHeight = player.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
     end
-    if not valid(pc) then pc = FindFirstOf("PC_LimaPlayerController_C") end
+    pc = aggroLib.localController()
     local loc = player:K2_GetActorLocation()
     local rot = player:K2_GetActorRotation()
     local pitch = 0
@@ -119,6 +138,7 @@ hud.start({ log = log })
 local enemies = require("enemies").new(log, hud)
 local destruction = require("destruction").new(log)
 local saveguard = require("saveguard").new(log)
+local worldsync = require("worldsync").new(log)
 local session = nil
 local lastNow = nil
 
@@ -172,10 +192,11 @@ local function startSession(mode, hostId, via)
         log = log, transport = tr, puppets = puppets, hud = hud, mode = mode,
         enemies = (mode ~= "loopback") and enemies or nil,
         destruction = (mode ~= "loopback") and destruction or nil,
+        worldsync = (mode ~= "loopback") and worldsync or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
     })
-    session.start(realTime() or 0)
+    session.start(monoTime() or 0)
 end
 
 local function command(cmd)
@@ -227,7 +248,7 @@ local function readCommand()
 end
 
 local function netStep()
-    local now = realTime()
+    local now = monoTime()
     if not now then return end
     local dt = lastNow and math.min(now - lastNow, 0.5) or 0
     lastNow = now
@@ -253,7 +274,7 @@ end
 
 local function renderStep()
     if not session then return end
-    local now = realTime()
+    local now = monoTime()
     if not now or not valid(player) then return end
     local cameraYaw = nil
     if valid(pc) then
@@ -292,6 +313,8 @@ LoopInGameThreadWithDelay(NET_MS, function() guarded("net", netStep) end)
 -- Save guard on its own loop: the net loop pauses while levels change, and the slot must be
 -- switched back as soon as the main menu shows (before the player can press Continue).
 LoopInGameThreadWithDelay(250, function() guarded("saveguard", saveguard.tick) end)
+-- World sync drives a client through menu -> Continue; it must keep running while levels load.
+LoopInGameThreadWithDelay(100, function() guarded("worldsync", function() worldsync.tick(0.1) end) end)
 
 -- Slot claim runs on its own: netStep needs the gameplay controller, but a second instance
 -- sitting in the main menu must already be addressable (self-test 2026-11-04).
@@ -338,6 +361,7 @@ local function selfTest()
         { T.ENEMY_DEATH, 7 },
         { T.ENEMY_HIT, 7, 12.5, "/Game/ProjectLima/Blueprints/Damage/DamageType_Normal.DamageType_Normal_C", 0.5, -0.25, 0, "head" },
         { T.ENEMY_SHOT, 7, 100.5, -2.25, 300, 1.5, -3.25, 0 },
+        { T.WORLD_SAVE, 3, 200588, 30000, "GVAS\0\1\2" },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }
     local sender = 76561197960265729

@@ -149,13 +149,15 @@ local function liveInstance(className_)
     return nil
 end
 
+-- Current world's controller/pawn every time (aggro.lua): cached ones from the previous level can
+-- still pass IsValid, and stand-ins share the player class.
 local function playerController()
-    if not valid(H.pc) then H.pc = FindFirstOf("PC_LimaPlayerController_C") end
+    H.pc = require("aggro").localController()
     return valid(H.pc) and H.pc or nil
 end
 
 local function localPlayer()
-    if not valid(H.player) then H.player = require("aggro").localPlayer() end   -- stand-ins share the class
+    H.player = require("aggro").localPlayer()
     return valid(H.player) and H.player or nil
 end
 
