@@ -23,11 +23,11 @@
 
 | # | 问题 | 证据 | 方案 | 状态 |
 |---|---|---|---|---|
-| 7 | **慢动作类效果是全局的**：一个人触发会让他整个世界变慢 | `SetGlobalTimeDilation`：`CH_LimaCharacter`、`PC_LimaPlayerController` | 先查哪些情况触发；房主触发时敌人对队友也变慢 | 待查 |
-| 8 | **大量蓝图只认 0 号玩家**（房主本人）：监控摄像头、全局激光、boss 舱门、发射物等只针对房主 | `GetPlayerCharacter` 被 132 个蓝图使用（`BP_CCTV_Camera`、`BP_GlobalLaser_01a`、`BP_BossHatch`、`BP_EnemyShockwave_Master`……） | 敌人子弹已经按仇恨改向；其余按影响逐个看 | 待查 |
+| 7 | **慢动作类效果是全局的**：一个人触发会让他整个世界变慢 | `SetGlobalTimeDilation`：`CH_LimaCharacter`、`PC_LimaPlayerController` | 先查哪些情况触发；房主触发时敌人对队友也变慢 | ✅ 0.8.2 `coopfixes.lua`：联机时原生 hook `SetGlobalTimeDilation`，值固定为 1，并记录游戏想设的值（日志 `coop: global slow motion`），以后能看出是哪些情况触发的。没在游戏里触发过，所以没有实测记录 |
+| 8 | **大量蓝图只认 0 号玩家**（房主本人）：监控摄像头、全局激光、boss 舱门、发射物等只针对房主 | `GetPlayerCharacter` 被 132 个蓝图使用（`BP_CCTV_Camera`、`BP_GlobalLaser_01a`、`BP_BossHatch`、`BP_EnemyShockwave_Master`……） | 敌人子弹已经按仇恨改向；其余按影响逐个看 | 部分：敌人的优化器（`CH_AI_Base:Optimiser` 按离 0 号玩家的距离设 `SignificanceInterval` / 组件更新间隔）实测不起作用：800 到 20 万距离的步兵，间隔全是 0。剩下只针对房主的敌方机关（冲击波 `BP_EnemyShockwave_Master`、全局激光、监控摄像头、boss 舱门）只会伤到 / 发现房主，对客户端只是更容易，记为已知限制 |
 | 9 | **boss 竞技场**：入场过场不同步；朋友先进去时房主那边不会开始（替身不再触发） | `BP_BossFightArena_Master`（父类 AActor）、`BP_BossTeleporter`；入口重叠事件和据点同名 | 完成已由 `mission.lua` 同步（`StrongholdCompleted`）；开始和过场要等实际打到 boss 时观察：用 Biome_05 的存档把人放进竞技场中心，没有任何函数被调用（多半要先完成"摧毁尖塔"、经 boss 传送门进入） | 待实测 |
 | 10 | 混乱碎片联机中拿到的可能带不回去 | 存档里没写 | 观察游戏何时保存 | 待查 |
-| 12 | 队友傀儡上的流送源好像没让那一带提前加载：传送过去后地面过了 8 秒以上才出现 | 实测 | 查 `WorldPartitionStreamingSourceComponent` 还需要什么设置；现在靠悬停等待兜底 | 待查 |
+| 12 | 队友傀儡上的流送源好像没让那一带提前加载：传送过去后地面过了 8 秒以上才出现 | 实测 | 查 `WorldPartitionStreamingSourceComponent` 还需要什么设置；现在靠悬停等待兜底 | ✅ 不是问题：远离玩家 12 万的地方本来就有地面（这一关的普通地形整关加载）；组件本身已启用，状态和玩家的一样。之前掉下去的真正原因是通行地形不同（#11，已修） |
 
 ## 已解决
 

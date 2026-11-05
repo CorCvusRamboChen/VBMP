@@ -6,16 +6,40 @@
 --    freezes every enemy for the teammate too, so during a session the bPaused argument is turned
 --    into false in a native pre-hook (native parameter edits stick: CLAUDE.md, SaveGameToSlot).
 --    Engine.hpp: void SetGamePaused(const UObject* WorldContextObject, bool bPaused).
+-- #7 Global slow motion: CH_LimaCharacter (2 calls) and PC_LimaPlayerController (1) call
+--    GameplayStatics.SetGlobalTimeDilation (CallFunc_SetGlobalTimeDilation locals in their event
+--    graphs; what triggers them is not readable from the dump). A host slowing its world slows
+--    the enemies the teammate fights, a client slowing its own puts its world out of step with
+--    the host's. During a session the value is kept at 1 the same way; the requested value is
+--    logged so the triggers can be identified in play. (Time stop is a different mechanism -
+--    FreezeTime per actor, synced by timestop.lua.)
+--    Engine.hpp: void SetGlobalTimeDilation(const UObject* WorldContextObject, float TimeDilation).
 
 local M = {}
 
 local PAUSE_FN = "/Script/Engine.GameplayStatics:SetGamePaused"
+local DILATION_FN = "/Script/Engine.GameplayStatics:SetGlobalTimeDilation"
 
 function M.new(log)
-    local C = { active = false, stats = { pausesBlocked = 0 } }
-    local pauseHooked = false
+    local C = { active = false, stats = { pausesBlocked = 0, dilationsBlocked = 0 } }
+    local pauseHooked, dilationHooked = false, false
 
     function C.install()
+        if not dilationHooked then
+            local okD, errD = pcall(RegisterHook, DILATION_FN, function(_, _ctx, value)
+                if not C.active then return end
+                local okGet, v = pcall(function() return value:get() end)
+                if okGet and type(v) == "number" and math.abs(v - 1) > 0.001 then
+                    local okSet = pcall(function() value:set(1.0) end)
+                    C.stats.dilationsBlocked = C.stats.dilationsBlocked + 1
+                    if C.stats.dilationsBlocked <= 20 then
+                        log(string.format("coop: global slow motion %.3f kept at 1 (%s)", v, okSet and "ok" or "set FAILED"))
+                    end
+                end
+            end)
+            dilationHooked = okD
+            log("coop: time dilation hook " .. (okD and "ok" or ("FAILED " .. tostring(errD))))
+        end
         if pauseHooked then return end
         local ok, err = pcall(RegisterHook, PAUSE_FN, function(_, _ctx, paused)
             if not C.active then return end
