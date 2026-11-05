@@ -55,6 +55,7 @@ local SLOT_CLASS = "WBP_Button_InventorySlot_C"
 local F_DETAILS = "MasterDetails_20_02C613244058148ADEB15795ACD96292"
 local SLOT_ARRAYS = { [0] = "InventorySlotArray", [1] = "Weapon01SlotArray", [2] = "Weapon02SlotArray" }
 local KIND_BACKPACK = 0
+local SHARED_BACKPACK = false   -- see docs/coop-rules.md
 
 local VIS_VISIBLE = 0
 local VIS_COLLAPSED = 1
@@ -735,7 +736,9 @@ local function tickInventory()
                 local label = m.name or "?"
                 if d and d.item and d.item ~= "" then label = label .. "  拖着：" .. d.item end
                 setText(w.label, label)
-                if d and d.kind == KIND_BACKPACK and (d.index or 0) > 0 then rect = slotRect(d.index) end
+                -- Backpacks are personal (coop-rules.md, 2026-11-05): the same slot index in my
+                -- backpack is not the teammate's item, so no slot highlight.
+                if SHARED_BACKPACK and d and d.kind == KIND_BACKPACK and (d.index or 0) > 0 then rect = slotRect(d.index) end
             end
             show(w.hl, rect ~= nil)
             if rect then

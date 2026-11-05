@@ -7,17 +7,14 @@
 | 时停 / 慢动作 / EMP 类全局效果 | **全员生效** | 房主执行 `PC.FreezeTime/ResumeTime`、`ABL_ActivateChronoHold?` 时广播给所有人；客户端施放时先发请求，由房主统一执行 |
 | 玩家死亡 | **倒地 + 队友复活** | 新增"倒地"状态：生命归零时不结束这一局，改成倒地；队友靠近后长按交互键复活；全员倒地才算这一局失败。需要拦截单机的死亡流程（`BP_EndRun` / `RespawnPlayer` / `ShowRunDeathScreen?`） |
 | 掉落 | **每人各得一份**（2026-11-05 用户选定，取代原来的"资源产出 ×2"） | 敌人在房主那边死亡时房主正常掉落；客户端的镜像敌人死亡时也按游戏自己的掉落规则在客户端世界里掉落（`DeathEvent(false)`），各捡各的。不再额外翻倍；如果以后觉得资源偏多或偏少，再调 |
-| 背包 | **全队共享**（⚠ 2026-11-05 暂缓：和"每人各得一份"冲突——每个人都已经拿到每件掉落的一份，再共享背包会让东西成倍出现。等用户重新决定：保留个人背包，或者共享但掉落改回只有捡到的人得） | 背包（`InventorySlots`）只有一份，由房主保管；谁捡到都进共享背包，所有人都能看到、都能取 |
-| 武器上的模组 | **个人所有** | 从共享背包拖到自己武器上（`Weapon01Slots/Weapon02Slots`）后归自己；拖回背包就重新变成共享的 |
+| 背包 | **个人所有**（2026-11-05 用户选定，取代原来的"全队共享"：掉落已经是每人一份，共享背包会让东西成倍出现） | 每人用自己的背包（`InventorySlots`），不同步；不做房主仲裁 |
+| 武器上的模组 | **个人所有** | 和背包一样，各管各的（`Weapon01Slots/Weapon02Slots`），不同步 |
 | 局外成长 | **暂定：每人用自己的存档**（用户还没明确确认，2026-11-04 先按此设计） | 每人带自己的永久升级（`UPG_*`）和解锁进入房主的局；局内进度（关卡、生态区、场景选择）由房主说了算；客户端在联机期间不写局内存档，局外的收获（Voidium 等）回到自己的存档 |
 
 ## 实现入口（build 23764881，CXXHeaderDump `CH_LimaCharacter_C`，未实测）
 
 - **资源 ×2**：所有货币都经过 `AddCurrency(int32 AmountToAdd, Enum_PickupOrbType CurrencyType)`（货币类型 0–3）。房主在前置 hook 里把 `AmountToAdd` 翻倍（UE4SS 的 hook 参数支持 `:set()`）。相关的还有 `PickedUpCurrency`、`AddCurrencyEvent`、`SpawnMoneyOrb(Amount, Location)`、`PickupWeaponChip(Points)`，要用探针确认是否会被重复计算
-- **共享背包 / 个人武器**：
-  - 加入背包：`AddToInventory(UPDA_MasterDetails_C*, Enum_InventoryType)`、`CreateStack_Inventory`、`AddToStack_Inventory`、`FindExistingStack_Inventory`
-  - 拖拽：`AddToInventoryIndex(DroppedInventory, DraggedInformation, DroppedIndex, DraggedInventory, DraggedIndex, …)`。参数里有拖出和放入的背包类型，"背包 ↔ 武器"的边界就在这里：拖进武器 = 从共享背包取走，拖回背包 = 放回共享背包
-  - 数据：`InventorySlots`（背包）、`Weapon01Slots/Weapon02Slots`（武器）、`BodyMods`、`RelicSlots`
+- ~~共享背包~~（2026-11-05 取消，背包改为个人所有）。留作参考的入口：`AddToInventory`、`AddToInventoryIndex`，数据 `InventorySlots`、`Weapon01Slots/Weapon02Slots`
 - **倒地 / 复活**：
   - 血量：`Health`、`MaxHealth`；受伤入口 `DealDamageToPlayer(double)`
   - 死亡流程：`HandleDeathUI`、`Death_DropArms`、`Save_PlayerDeath`、`RespawnPlayer`（`GM_LimaGameMode_C` 也有 `RespawnPlayer`）；死亡界面 `WBP_DeathScreen`
