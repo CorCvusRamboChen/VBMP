@@ -156,6 +156,7 @@ local storysync = require("storysync").new(log)
 local coopfixes = require("coopfixes").new(log)
 local regionsync = require("regionsync").new(log, hud, aggroLib.localPlayer)
 local traversal = require("traversal").new(log)
+local mission = require("mission").new(log)
 local session = nil
 local lastNow = nil
 
@@ -345,6 +346,7 @@ local function startSession(mode, hostId, via, steamHost)
         storysync = (mode ~= "loopback") and storysync or nil,
         regionsync = (mode ~= "loopback") and regionsync or nil,
         traversal = (mode ~= "loopback") and traversal or nil,
+        mission = (mode ~= "loopback") and mission or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
         -- Steam: finding the host's presence and NAT traversal take longer than a file link
@@ -616,6 +618,7 @@ local function selfTest()
         { T.STORY, "BP_SequenceContainer_C", -18, -5375, 1623, 1 },
         { T.REGION, "BP_Scenario_Boss_C", -429.5, -217671, 5890, -426, -217306, 5423 },
         { T.TRAV, -880, -203856, 5739, "/Game/ProjectLima/Levels/TransitionRegions/B05/LV_TRS_B05_01" },
+        { T.MISSION, "BP_Stronghold_Frozen_C", 33063, -79837, 5219, 2 },
         { T.PLAYER_HIT, 20 },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }

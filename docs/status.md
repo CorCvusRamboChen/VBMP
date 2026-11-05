@@ -15,6 +15,7 @@
   - 破坏同步正常；两个进程都没崩
 - **已做完并自测**：3.1–3.9、3.6 存档保护、3.7 世界同步（含 3.7b/3.7c）、3.8 伤害转发、4.1/4.1b 倒地复活、4.2 时停、4.3 掉落每人一份、4.4 交互
 - **已决定（2026-11-05）**：背包个人所有，不做共享背包
+- **0.8.0**：替身不再触发房主世界里的东西（`aggro.lua`）；据点 / 竞技场：房主完成 → 客户端完成（收护盾、给自己的奖励），客户端先进入 → 房主开始（`mission.lua`，`MISSION` 30）。调查记录 `research/phase4-07-strongholds.md`
 - **0.7.0**：系统排查"单人假设在联机下出错"的地方，清单在 `docs/coop-issues.md`（证据来自对象转储的 `CallFunc_*` / `BndEvt_*` 和实测）。这一版修了：联机时不暂停（`coopfixes.lua`）；谁先进入新区域其他人被传送过去（`regionsync.lua`，`REGION` 28）；区域间通行地形统一成房主的（`traversal.lua`，`TRAV` 29，原来每个进程随机挑，6 段里 5 段不同）；客户端那边的房主傀儡也带流送源。调查记录 `research/phase4-06-regions.md`
 - **0.6.0**：剧情同步（`storysync.lua`，消息 `STORY` 27，`MOD_BUILD` 3）。剧情 / 对话都放在"序列容器"里（`BP_SequenceContainer`、`_NormalUse`、`_Dialogue`、`_RandomTable`、`BP_TriggerDialogueSequence`），由触发链 `BP_PlayerTrigger` → `BP_SignalOps_DoOnce` → 容器 `Switch(true)` 开始播放；任何人的容器跑 `Switch`/`Activate` 时，其他人对同一位置的同类容器调用同一函数（30 秒内同一个不重复）。自测：脚本调用容器 `Switch(true)` 播放了 `LS_0500_Entrance`（语音、字幕）；双开 A 触发 → B 3 ms 后播放同一段，B 触发 `LS_0500_Address` → A 40 ms 后播放（IDRIS 台词 + 过场特效）；编解码自检 26/26。没测：真实走进触发器（脚本移动角色没触发重叠）、boss 入场过场（没同步）、锁定角色的长过场
 - **0.5.3**：敌人联机加强（`enemies.lua`，规则见 `coop-rules.md`）：2 人血量 ×1.5、数量 ×1.5。双开自测：A 刷 6 个步兵 → 额外生成 4 个，A、B 都是 10 个，血量 39→58、101→151、70→105，B 的镜像血量与 A 一致。没测：波次 / 据点任务的击杀计数、额外敌人从生成点出现的样子（没有出生特效）

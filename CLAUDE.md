@@ -59,6 +59,9 @@
 - `tools/dev.ps1`、`dualtest-start.ps1` 要在 PowerShell 里直接运行：从 bash 用 `powershell -File … 2>&1` 调用时，ssh 新出现的 post-quantum 警告会被 PowerShell 5.1 当成错误，结果读不到回复、一直超时（2026-11-05）
 - **存档对象要等 `GI.MasterSave()` 才更新**：拾取的货币先记在角色和 GI 上，`GI.SaveGameData()` 只是把旧的 `LatestSaveGame` 写盘；要把当前状态写进存档用 `MasterSave()`（2026-11-05）。货币枚举 0 VoidCoins、1 Voidium、2 解密器、3 混沌碎片
 - 主菜单 `WBP_PlayMenu_C` 在 CommonUI 栈里，`IsInViewport()` 为假；找它要"优先在视口里的，否则任意有效实例"（`worldsync.lua`、`main.lua` 的 `pressContinue`）
+- 蓝图函数的 hook 回调看起来在函数体**执行完之后**才调用：外层函数的记录总在它内部调用的函数之后（2026-11-05 区域推进、据点完成的日志顺序）
+- 子类自己声明了同名函数（重写）时，挂在父类上的 hook 不会被调用，要在每个声明它的类上分别 hook（2026-11-05：`BP_Mission_WaveSpawner` 的 `CALL_PlayerOverlappedStart`）
+- 队友的替身是 `CH_LimaCharacter_C`，会触发房主世界里所有"玩家走进来"的东西；现在替身关掉了重叠事件（`aggro.lua`）
 - **游戏更新后第一次启动要编译着色器**，主菜单可能十几分钟才出来（2026-11-05 build 26439385：约 12 分钟），VBDev 在这期间不响应
 - **自测**：`tools/selftest-start.ps1` 启动游戏并点"继续"（从不点"新游戏"），`tools/dev.ps1` 在游戏里执行 Lua 和截图（需要启用 VBDev）。测试前先存档槽，测完恢复。**不要从 ssh 直接运行 `steam.exe`**，游戏要通过 `launch_game.ps1`（一次性计划任务）在用户桌面里启动
 

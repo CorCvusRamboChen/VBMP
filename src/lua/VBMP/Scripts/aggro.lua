@@ -265,6 +265,15 @@ function M.new(log, E)
         -- (bCanBeDamaged = false); the host can bump into an unseen teammate, like into the puppet.
         pcall(function() a:SetActorTickEnabled(false) end)
         pcall(function() a.CharacterMovement:SetMovementMode(0, 0) end)   -- MOVE_None: no gravity
+        -- No overlap events (docs/coop-issues.md #4): a stand-in is a CH_LimaCharacter_C, so the
+        -- host's "player walked in" triggers fired for it - spawning one set off the region
+        -- under it, moving it into the boss region's RunProgressor did again (self-test
+        -- 2026-11-05); with overlap events off on capsule and mesh, nothing fired. Lifts,
+        -- extraction, teleporters, pickups, region progression and story triggers in the host's
+        -- world now react to the host only; the teammate's own world handles theirs
+        -- (regionsync.lua, storysync.lua). Blocking collision stays for melee and bullets.
+        pcall(function() a.CapsuleComponent:SetGenerateOverlapEvents(false) end)
+        pcall(function() a.Mesh:SetGenerateOverlapEvents(false) end)
         pcall(function()
             local w = a.CurrentlyEquipedWeapon
             if valid(w) then w:SetActorHiddenInGame(true); w:SetActorEnableCollision(false) end

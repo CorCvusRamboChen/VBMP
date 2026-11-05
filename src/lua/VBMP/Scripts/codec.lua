@@ -54,6 +54,8 @@ M.T = {
                         --              location, the player's location (regionsync.lua)
     TRAV = 29,          -- "<fffs2"     host -> client: the level a traversal area streamed in (area
                         --              location, package path) (traversal.lua)
+    MISSION = 30,       -- "<s1fffB"    stronghold / arena: class, location, 1 started (client -> host),
+                        --              2 completed (host -> clients) (mission.lua)
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -89,6 +91,7 @@ local BODY = {
     [M.T.STORY] = "<s1fffB",
     [M.T.REGION] = "<s1ffffff",
     [M.T.TRAV] = "<fffs2",
+    [M.T.MISSION] = "<s1fffB",
 }
 
 -- s1 strings hold at most 255 bytes.
@@ -107,7 +110,7 @@ function M.encode(kind, sender, ...)
     elseif kind == M.T.DST_BREAK then args[1] = clip(args[1], 255)
     elseif kind == M.T.DST_HIT then args[1] = clip(args[1], 255); args[6] = clip(args[6], 255)
     elseif kind == M.T.RADIAL then args[12] = clip(args[12], 255)
-    elseif kind == M.T.INTERACT or kind == M.T.STORY or kind == M.T.REGION then args[1] = clip(args[1], 255) end
+    elseif kind == M.T.INTERACT or kind == M.T.STORY or kind == M.T.REGION or kind == M.T.MISSION then args[1] = clip(args[1], 255) end
     local body = fmt ~= "" and string.pack(fmt, table.unpack(args, 1, select("#", ...))) or ""
     return string.pack(HDR, "VB", M.VERSION, kind, sender) .. body
 end

@@ -18,7 +18,7 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 4                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29)
+M.MOD_BUILD = 5                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
@@ -74,6 +74,8 @@ function M.new(opts)
     local regionsync = opts.regionsync
     -- Same connecting terrain for everyone (traversal.lua).
     local traversal = opts.traversal
+    -- Strongholds / arenas: start on the host, complete everywhere (mission.lua).
+    local mission = opts.mission
     local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
@@ -192,6 +194,7 @@ function M.new(opts)
             if storysync then storysync.setRole("host") end
             if regionsync then regionsync.setRole("host") end
             if traversal then traversal.setRole("host") end
+            if mission then mission.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -217,6 +220,7 @@ function M.new(opts)
             if storysync then storysync.setRole("client") end
             if regionsync then regionsync.setRole("client") end
             if traversal then traversal.setRole("client") end
+            if mission then mission.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
@@ -243,6 +247,7 @@ function M.new(opts)
         if storysync then pcall(storysync.clear) end
         if regionsync then pcall(regionsync.clear) end
         if traversal then pcall(traversal.clear) end
+        if mission then pcall(mission.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -410,6 +415,11 @@ function M.new(opts)
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 regionsync.onRemote(a, b, c, d, e, f, g, sender)
             end
+        elseif kind == T.MISSION then
+            if not mission then return end
+            if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
+                mission.onRemote(a, b, c, d, e, sender)
+            end
         elseif kind == T.TRAV then
             if traversal and S.mode == "client" and sender == S.hostId then traversal.onRemote(a, b, c, d) end
         elseif kind == T.WIPE then
@@ -569,6 +579,16 @@ function M.new(opts)
                 end
             end)
             if not ok then log("region tick failed: " .. tostring(err)) end
+        end
+        if mission and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
+            local ok, err = pcall(mission.tick, dt, function(cls, x, y, z, code, except)
+                if S.mode == "host" then
+                    for _, id in ipairs(targets) do if id ~= except then send(id, T.MISSION, true, cls, x, y, z, code) end end
+                else
+                    send(S.hostId, T.MISSION, true, cls, x, y, z, code)
+                end
+            end)
+            if not ok then log("mission tick failed: " .. tostring(err)) end
         end
         if timestop and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
             local ok, err = pcall(timestop.tick, function(d, except)
