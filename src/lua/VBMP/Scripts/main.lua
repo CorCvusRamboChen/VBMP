@@ -507,6 +507,12 @@ local function netStep()
 
     if session then
         session.update(now, dt, localState())
+        if session.mode == "client" and session.hostGone then
+            log("host left (" .. tostring(session.hostGone) .. ") - ending the client session")
+            stopSession()
+            pcall(hud.notify, "房主已离开联机。回到主菜单就会回到你自己的存档，这次的局外收获会带回。", nil, 12)
+            return
+        end
         if valid(player) then puppets.spawnPending({ now = now, world = player:GetWorld() }) end
         if enemies.role == "client" then
             local ok, err = pcall(enemies.clientTick, valid(player) and player:GetWorld() or nil)

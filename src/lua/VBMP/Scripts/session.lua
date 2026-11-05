@@ -153,6 +153,9 @@ function M.new(opts)
         dragItems[id] = nil
         puppets.remove(id)
         H("removeTeammate", id)
+        -- The host is gone (said bye / timed out): main.lua ends the client session, so the save
+        -- guard switches back at the main menu and carries the out-of-run gains home.
+        if S.mode == "client" and id == S.hostId and why ~= "session stopped" then S.hostGone = why end
     end
 
     local function fail(reason)
