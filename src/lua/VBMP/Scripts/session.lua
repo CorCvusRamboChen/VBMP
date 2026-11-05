@@ -25,7 +25,9 @@ local HELLO_GIVE_UP = 30.0
 local PING_EVERY = 2.0
 local LEVEL_EVERY = 5.0
 local ACCEPT_SCAN_EVERY = 2.0
-local TIMEOUT = 45.0        -- level loads stall the game thread (and our loops) for many seconds
+local AWAY_LIMIT = 10.0     -- a client this long in another level than the host is brought back
+local PULL_QUIET = 90.0     -- ...but not within this long of a world send to it (loads take a while)
+local TIMEOUT = 45.0       -- level loads stall the game thread (and our loops) for many seconds
 local FRIEND_IMMEDIATE = 3
 
 local function valid(o) return o ~= nil and o:IsValid() end
@@ -332,6 +334,9 @@ function M.new(opts)
                 pcall(traversal.hostSendAll, function(x, y, z, pkg) send(sender, T.TRAV, true, x, y, z, pkg) end)
             end
             if worldsync then
+                -- it is still in its own level while it loads ours: no "alone in another level" pull yet
+                local jp = S.peers[sender]
+                if jp then jp.lastPull, jp.awaySince = S.now, nil end
                 local ok, err = pcall(worldsync.hostSendTo, function(id, total, off, bytes)
                     send(sender, T.WORLD_SAVE, true, id, total, off, bytes)
                 end)
@@ -470,8 +475,34 @@ function M.new(opts)
             lastLevelSent = localState.level
             timers.level = LEVEL_EVERY      -- send right away
         end
+        -- Only the host moves the team to another level (docs/coop-issues.md #13): a client that
+        -- took a lift / teleporter / extraction alone is sent the host's world again after
+        -- AWAY_LIMIT and reloads into it. Not while the host's own level change is being sent,
+        -- and not for a client sitting in the main menu.
+        if S.mode == "host" and worldsync and lastLevelSent and not worldResendAt then
+            for id, p in pairs(S.peers) do
+                local away = p.level and p.level ~= lastLevelSent and not tostring(p.level):find("MainMenu", 1, true)
+                if not away then
+                    p.awaySince = nil
+                else
+                    p.awaySince = p.awaySince or now
+                    if now - p.awaySince > AWAY_LIMIT and now - (p.lastPull or -1e9) > PULL_QUIET then
+                        p.lastPull = now
+                        log(string.format("%s is alone in %s - sending them back to %s", tostring(p.name), tostring(p.level), tostring(lastLevelSent)))
+                        H("notify", tostring(p.name) .. " 去了别的关卡，正在把他带回来")
+                        if traversal then
+                            pcall(traversal.hostSendAll, function(x, y, z, pkg) send(id, T.TRAV, true, x, y, z, pkg) end)
+                        end
+                        pcall(worldsync.hostSendTo, function(tid, total, off, bytes)
+                            send(id, T.WORLD_SAVE, true, tid, total, off, bytes)
+                        end)
+                    end
+                end
+            end
+        end
         if worldResendAt and now >= worldResendAt then
             worldResendAt = nil
+            for _, p in pairs(S.peers) do p.lastPull = now end
             for id in pairs(S.peers) do
                 if traversal then
                     pcall(traversal.hostSendAll, function(x, y, z, pkg) send(id, T.TRAV, true, x, y, z, pkg) end)

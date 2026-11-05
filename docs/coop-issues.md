@@ -13,9 +13,11 @@
 | 2 | **区域封锁**：进入下一区域时上一区域被封上。一个人先走，另一个人在自己的世界里还能走，但在房主世界里，客户端的替身可能先触发封锁，把房主关在后面；两人进度也会分开 | `BP_Scenario_Master`：`RunProgressor` 重叠 → `ProgressScenario()` / `ProgressWall()` → `DisableAllRunActorsRecursive()`；`BP_TraversalBlocker`：重叠时把 `OtherActor` 和 `GetActorOfClass(...)` 比较后 `ActivateBlocker()` | 谁本人先进入新区域，其他人 3 秒后被传送到他身边（落地前悬停到脚下有地面，最多 25 秒），在自己的世界里正常推进、封锁；替身触发的不算 | ✅ 0.7.0 `regionsync.lua`。实测：B 进入 boss 区域 → A 3 秒后传送到 B 旁 150 处站稳 |
 | 3 | **区域 / 据点 / 竞技场把客户端关在里面**：客户端那份世界里的任务 Actor 会自己刷怪（被客户端删掉），客户端那边的任务永远等不到击杀，门不开 | `BP_Stronghold_*`、`BP_Mission_WaveSpawner`（`NumEnemiesToKill`、`AllEnemiesSpawned`）、`BP_BossFightArena_Master`、`WBP_Notification_AreaCleared/AreaFailed` | 房主的据点 / 竞技场完成（`StrongholdCompleted`）时，客户端对同一个调用 `StrongholdCompleted(true)`；客户端先进入据点时（`CALL_PlayerOverlappedStart`），房主那份也开始 | ✅ 0.8.0 `mission.lua`（`MISSION` 30）。实测：B 的据点被关住 → A 打完 4 波 → B 50 ms 内完成、护盾收起、掉自己的奖励。"客户端带动房主开始"只测到消息和判断，房主那边实际开始没亲眼看到 |
 | 4 | **替身误触发房主世界的东西**：电梯、传送器、撤离点、出界、发射台、商店格子、图纸拾取、腐化器、方尖碑、boss 竞技场、雾区切换 | 这些蓝图有 `BeginOverlap` 且转换成 `CH_LimaCharacter`：`BP_MainLift`、`BP_Teleporter`、`BP_StartingTeleporter`、`BP_Mission_Extraction`、`BP_OutOfBounds`、`BP_LaunchPad`、`BP_VerticalLaunchPad`、`BP_ShopUnit_Master/Reroll`、`BP_Schematic_Pickup_Master`、`BP_Interactable_Corruptor_Master`、`BP_Interactable_Obelisk_Master`、`BP_BossFightArena_Master`、`BP_Trigger_FogSwitcher`、`BP_Scenario_Master`、`BP_PlayerTrigger`、`BP_1473_Dialogue_Trigger`、`BP_Announcement_Tannoy_Voice`、`BP_Recycler` | 替身一律不产生重叠事件（胶囊体和网格 `SetGenerateOverlapEvents(false)`），碰撞保留 | ✅ 0.8.0 `aggro.lua`。实测：替身生成时就触发了脚下区域、放进 boss 推进球又触发；关掉后不再触发 |
-| 5 | **加密区域**：用解密器解锁的区域只在解锁的人那边打开 | `WBP_EncryptedArea`、`BP_LootChest_Encrypted` | 和宝箱一样同步"解锁" | 待查 |
+| 5 | **加密区域**：用解密器解锁的区域只在解锁的人那边打开 | `WBP_EncryptedArea`、`BP_LootChest_Encrypted` | 不同步：加密宝箱重写了 `InteractObjectHold`（花解密器打开），交互同步本来就不重放它，每人用自己的解密器开自己的箱子。`WBP_EncryptedArea` 只是界面，没有 Actor 用它 | ✅ 保持个人（0.8.1 核对） |
 | 11 | **区域之间的通行地形每个人随机不一样**：同一位置房主是一种地形、客户端是另一种，脚下的路不是同一条（传送后掉下去的真正原因） | `BP_TraversalArea_C.PickRandomInstance` 用 `Array_Random`（无种子）从数据表挑关卡；实测 6 段里 5 段不同 | 房主把每段选的关卡发给客户端（`TRAV` 29），客户端卸掉自己的、在同一位置 `LoadLevelInstance` 房主那份 | ✅ 0.7.0 `traversal.lua`。实测：客户端加入 5 秒内换掉 5 段，两边一致 |
-| 6 | **传送器 / 地图连接点（滑索）解锁**：只在使用的人那边解锁；关内传送只传送自己 | `BP_Teleporter`（`HasAccess?`、`Cost`）、`BP_MapConnector`（`Unlocked?`、`RequiredGateLevel`） | 解锁要同步；关内传送后队友是否跟随要定规则 | 待查 |
+| 6 | **传送器 / 地图连接点（滑索）解锁**：只在使用的人那边解锁；关内传送只传送自己 | `BP_Teleporter`（`HasAccess?`、`Cost`）、`BP_MapConnector`（`Unlocked?`、`RequiredGateLevel`） | 不同步：传送器短按打开地图、长按付费解锁（`InteractObjectQuick/Hold`，有 `Cost`），都是个人操作；传送到新区域后由区域同步把队友拉过去 | ✅ 保持个人（0.8.1 核对） |
+
+| 13 | **朋友单独换关**：自己坐电梯 / 传送门 / 撤离去了别的关卡，房主不跟，两人停在不同关卡 | 房主换关时客户端会跟（3.7b），反过来没有 | 只有房主能带全队换关：队友在别的关卡（主菜单除外）超过 10 秒，房主把世界存档重发给他，他读回房主的关卡；刚加入或刚换关后 90 秒内不拉 | ✅ 0.8.1 `session.lua`。实测：B 自己去了中心关卡 → 被拉回 B05 |
 
 ## 中等
 
@@ -23,7 +25,7 @@
 |---|---|---|---|---|
 | 7 | **慢动作类效果是全局的**：一个人触发会让他整个世界变慢 | `SetGlobalTimeDilation`：`CH_LimaCharacter`、`PC_LimaPlayerController` | 先查哪些情况触发；房主触发时敌人对队友也变慢 | 待查 |
 | 8 | **大量蓝图只认 0 号玩家**（房主本人）：监控摄像头、全局激光、boss 舱门、发射物等只针对房主 | `GetPlayerCharacter` 被 132 个蓝图使用（`BP_CCTV_Camera`、`BP_GlobalLaser_01a`、`BP_BossHatch`、`BP_EnemyShockwave_Master`……） | 敌人子弹已经按仇恨改向；其余按影响逐个看 | 待查 |
-| 9 | **boss 入场过场**不同步 | `BP_BossFightArena_Master`、`BP_BossTeleporter` 自己放序列 | 和剧情同步一样重放 | 待做 |
+| 9 | **boss 竞技场**：入场过场不同步；朋友先进去时房主那边不会开始（替身不再触发） | `BP_BossFightArena_Master`（父类 AActor）、`BP_BossTeleporter`；入口重叠事件和据点同名 | 完成已由 `mission.lua` 同步（`StrongholdCompleted`）；开始和过场要等实际打到 boss 时观察：用 Biome_05 的存档把人放进竞技场中心，没有任何函数被调用（多半要先完成"摧毁尖塔"、经 boss 传送门进入） | 待实测 |
 | 10 | 混乱碎片联机中拿到的可能带不回去 | 存档里没写 | 观察游戏何时保存 | 待查 |
 | 12 | 队友傀儡上的流送源好像没让那一带提前加载：传送过去后地面过了 8 秒以上才出现 | 实测 | 查 `WorldPartitionStreamingSourceComponent` 还需要什么设置；现在靠悬停等待兜底 | 待查 |
 
