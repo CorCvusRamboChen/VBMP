@@ -55,8 +55,10 @@ try {
     $zipPath = Join-Path $tmp $zipName
     Status 'downloading' $current $latest "正在下载 $latest"
     Invoke-WebRequest -Uri $zipAsset.browser_download_url -OutFile $zipPath -Headers @{ 'User-Agent' = 'VBMP-updater' } -UseBasicParsing -TimeoutSec 300
-    $want = ((Invoke-WebRequest -Uri $shaAsset.browser_download_url -Headers @{ 'User-Agent' = 'VBMP-updater' } -UseBasicParsing -TimeoutSec 60).Content |
-        ForEach-Object { if ($_ -is [byte[]]) { [Text.Encoding]::ASCII.GetString($_) } else { $_ } }).Trim().Split(' ')[0].ToLower()
+    # GitHub serves the .sha256 as application/octet-stream: save it and read it as text
+    $shaPath = Join-Path $tmp "$zipName.sha256"
+    Invoke-WebRequest -Uri $shaAsset.browser_download_url -OutFile $shaPath -Headers @{ 'User-Agent' = 'VBMP-updater' } -UseBasicParsing -TimeoutSec 60
+    $want = ([IO.File]::ReadAllText($shaPath)).Trim().Split(' ')[0].ToLower()
     $have = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
     if ($want -ne $have) { throw "SHA-256 mismatch: expected $want, got $have" }
     Log "downloaded $zipName, sha256 ok"
