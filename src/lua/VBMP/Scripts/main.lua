@@ -153,6 +153,9 @@ local downed = require("downed").new(log, hud)
 local timestop = require("timestop").new(log)
 local interact = require("interact").new(log)
 local storysync = require("storysync").new(log)
+local coopfixes = require("coopfixes").new(log)
+local regionsync = require("regionsync").new(log, hud, aggroLib.localPlayer)
+local traversal = require("traversal").new(log)
 local session = nil
 local lastNow = nil
 
@@ -270,6 +273,7 @@ end
 
 local function stopSession()
     stopSteamHelper()
+    pcall(coopfixes.setActive, false)
     if session then
         if session.mode == "client" then pcall(saveguard.clientStopped) end
         pcall(session.stop)
@@ -339,12 +343,15 @@ local function startSession(mode, hostId, via, steamHost)
         timestop = (mode ~= "loopback") and timestop or nil,
         interact = (mode ~= "loopback") and interact or nil,
         storysync = (mode ~= "loopback") and storysync or nil,
+        regionsync = (mode ~= "loopback") and regionsync or nil,
+        traversal = (mode ~= "loopback") and traversal or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
         -- Steam: finding the host's presence and NAT traversal take longer than a file link
         helloGiveUp = (via == "steam") and 90 or nil,
     })
     session.start(monoTime() or 0)
+    if mode ~= "loopback" then pcall(coopfixes.setActive, true) end
 end
 
 local function command(cmd)
@@ -552,6 +559,8 @@ LoopInGameThreadWithDelay(NET_MS, function() guarded("net", netStep) end)
 LoopInGameThreadWithDelay(250, function() guarded("saveguard", saveguard.tick) end)
 -- World sync drives a client through menu -> Continue; it must keep running while levels load.
 LoopInGameThreadWithDelay(100, function() guarded("worldsync", function() worldsync.tick(0.1) end) end)
+-- Traversal terrain swaps must also run while the client is loading the host's world.
+LoopInGameThreadWithDelay(500, function() guarded("traversal", function() traversal.tick(0.5) end) end)
 
 -- Slot claim runs on its own: netStep needs the gameplay controller, but a second instance
 -- sitting in the main menu must already be addressable (self-test 2026-11-04).
@@ -605,6 +614,8 @@ local function selfTest()
         { T.TIMESTOP, 3.5 },
         { T.INTERACT, "BP_PuzzleLever_C", 1.5, 2.5, 3.5, 1 },
         { T.STORY, "BP_SequenceContainer_C", -18, -5375, 1623, 1 },
+        { T.REGION, "BP_Scenario_Boss_C", -429.5, -217671, 5890, -426, -217306, 5423 },
+        { T.TRAV, -880, -203856, 5739, "/Game/ProjectLima/Levels/TransitionRegions/B05/LV_TRS_B05_01" },
         { T.PLAYER_HIT, 20 },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }

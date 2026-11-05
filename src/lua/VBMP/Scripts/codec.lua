@@ -50,6 +50,10 @@ M.T = {
     PLAYER_HIT = 26,    -- "<f"         host -> one client: damage an enemy dealt to your stand-in (melee)
     STORY = 27,         -- "<s1fffB"    a cutscene/dialogue container ran Switch/Activate: exact class name,
                         --              its location, code 1-4 (storysync.lua)
+    REGION = 28,        -- "<s1ffffff"  a player entered a new map region first: region class, region
+                        --              location, the player's location (regionsync.lua)
+    TRAV = 29,          -- "<fffs2"     host -> client: the level a traversal area streamed in (area
+                        --              location, package path) (traversal.lua)
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -83,6 +87,8 @@ local BODY = {
     [M.T.INTERACT] = "<s1fffB",
     [M.T.PLAYER_HIT] = "<f",
     [M.T.STORY] = "<s1fffB",
+    [M.T.REGION] = "<s1ffffff",
+    [M.T.TRAV] = "<fffs2",
 }
 
 -- s1 strings hold at most 255 bytes.
@@ -101,7 +107,7 @@ function M.encode(kind, sender, ...)
     elseif kind == M.T.DST_BREAK then args[1] = clip(args[1], 255)
     elseif kind == M.T.DST_HIT then args[1] = clip(args[1], 255); args[6] = clip(args[6], 255)
     elseif kind == M.T.RADIAL then args[12] = clip(args[12], 255)
-    elseif kind == M.T.INTERACT or kind == M.T.STORY then args[1] = clip(args[1], 255) end
+    elseif kind == M.T.INTERACT or kind == M.T.STORY or kind == M.T.REGION then args[1] = clip(args[1], 255) end
     local body = fmt ~= "" and string.pack(fmt, table.unpack(args, 1, select("#", ...))) or ""
     return string.pack(HDR, "VB", M.VERSION, kind, sender) .. body
 end

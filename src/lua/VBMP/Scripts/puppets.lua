@@ -68,17 +68,20 @@ function M.new(log)
         return comp
     end
 
-    -- Host only: the host simulates the world around every player, so a remote player needs
-    -- the same streaming source and navmesh invoker the local character carries.
+    -- Every side: a streaming source keeps the remote player's surroundings loaded (the host
+    -- simulates enemies there; a client may be teleported there when the host enters a new
+    -- region - regionsync.lua - and must not land in unloaded space).
+    -- Host only: the navmesh invoker the local character carries (enemies path around them).
     local function addHostExtras(actor)
         local cls = StaticFindObject("/Script/Engine.WorldPartitionStreamingSourceComponent")
         local ok, comp = pcall(function() return actor:AddComponentByClass(cls, false, IDENTITY, false) end)
         if ok and valid(comp) then
             pcall(function() comp:EnableStreamingSource() end)
-            log("host extra: streaming source on " .. actor:GetFName():ToString())
+            log("puppet extra: streaming source on " .. actor:GetFName():ToString())
         else
-            log("host extra: streaming source FAILED: " .. tostring(comp))
+            log("puppet extra: streaming source FAILED: " .. tostring(comp))
         end
+        if not P.isHost then return end
         local nav = StaticFindObject("/Script/NavigationSystem.Default__NavigationSystemV1")
         local okNav, err = pcall(function() nav:RegisterNavigationInvoker(actor, 3000, 5000) end)
         log("host extra: navigation invoker " .. (okNav and "registered" or ("FAILED: " .. tostring(err))))
@@ -106,7 +109,7 @@ function M.new(log)
         end
         actor:SetActorEnableCollision(false)
         peer.tag = addNameTag(actor, peer.name or "?")
-        if P.isHost then addHostExtras(actor) end
+        addHostExtras(actor)
         log(string.format("puppet for %s (%s): %s", peer.name or "?", peer.kind, actor:GetFullName()))
         return actor
     end

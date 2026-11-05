@@ -18,7 +18,7 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 3                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27)
+M.MOD_BUILD = 4                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
@@ -70,6 +70,10 @@ function M.new(opts)
     local interact = opts.interact
     -- Cutscenes and dialogue for everyone (storysync.lua).
     local storysync = opts.storysync
+    -- New map regions pull the team together (regionsync.lua).
+    local regionsync = opts.regionsync
+    -- Same connecting terrain for everyone (traversal.lua).
+    local traversal = opts.traversal
     local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
@@ -186,6 +190,8 @@ function M.new(opts)
             if damagesync then damagesync.setRole("host") end
             if interact then interact.setRole("host") end
             if storysync then storysync.setRole("host") end
+            if regionsync then regionsync.setRole("host") end
+            if traversal then traversal.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -209,6 +215,8 @@ function M.new(opts)
             if damagesync then damagesync.setRole("client") end
             if interact then interact.setRole("client") end
             if storysync then storysync.setRole("client") end
+            if regionsync then regionsync.setRole("client") end
+            if traversal then traversal.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
@@ -233,6 +241,8 @@ function M.new(opts)
         if timestop then pcall(timestop.clear) end
         if interact then pcall(interact.clear) end
         if storysync then pcall(storysync.clear) end
+        if regionsync then pcall(regionsync.clear) end
+        if traversal then pcall(traversal.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -313,6 +323,9 @@ function M.new(opts)
             if destruction then
                 pcall(destruction.hostSendAll, function(n, x, y, z) send(sender, T.DST_BREAK, true, n, x, y, z) end)
             end
+            if traversal then
+                pcall(traversal.hostSendAll, function(x, y, z, pkg) send(sender, T.TRAV, true, x, y, z, pkg) end)
+            end
             if worldsync then
                 local ok, err = pcall(worldsync.hostSendTo, function(id, total, off, bytes)
                     send(sender, T.WORLD_SAVE, true, id, total, off, bytes)
@@ -392,6 +405,13 @@ function M.new(opts)
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 storysync.onRemote(a, b, c, d, e, sender)
             end
+        elseif kind == T.REGION then
+            if not regionsync then return end
+            if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
+                regionsync.onRemote(a, b, c, d, e, f, g, sender)
+            end
+        elseif kind == T.TRAV then
+            if traversal and S.mode == "client" and sender == S.hostId then traversal.onRemote(a, b, c, d) end
         elseif kind == T.WIPE then
             if downed and S.mode == "client" and sender == S.hostId then downed.onWipe() end
         elseif kind == T.TIMESTOP then
@@ -443,6 +463,9 @@ function M.new(opts)
         if worldResendAt and now >= worldResendAt then
             worldResendAt = nil
             for id in pairs(S.peers) do
+                if traversal then
+                    pcall(traversal.hostSendAll, function(x, y, z, pkg) send(id, T.TRAV, true, x, y, z, pkg) end)
+                end
                 local ok, err = pcall(worldsync.hostSendTo, function(tid, total, off, bytes)
                     send(id, T.WORLD_SAVE, true, tid, total, off, bytes)
                 end)
@@ -536,6 +559,16 @@ function M.new(opts)
                 end
             end)
             if not ok then log("story tick failed: " .. tostring(err)) end
+        end
+        if regionsync and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
+            local ok, err = pcall(regionsync.tick, dt, function(cls, x, y, z, px, py, pz, except)
+                if S.mode == "host" then
+                    for _, id in ipairs(targets) do if id ~= except then send(id, T.REGION, true, cls, x, y, z, px, py, pz) end end
+                else
+                    send(S.hostId, T.REGION, true, cls, x, y, z, px, py, pz)
+                end
+            end)
+            if not ok then log("region tick failed: " .. tostring(err)) end
         end
         if timestop and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
             local ok, err = pcall(timestop.tick, function(d, except)
