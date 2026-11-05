@@ -450,7 +450,7 @@ function M.new(opts)
             return
         end
 
-        if S.mode == "host" then
+        if S.mode == "host" and tr.kind == "steam" then
             timers.scan = timers.scan + dt
             if timers.scan >= ACCEPT_SCAN_EVERY then
                 timers.scan = 0

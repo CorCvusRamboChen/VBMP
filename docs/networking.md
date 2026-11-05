@@ -1,4 +1,33 @@
-# 网络层（Phase 2，VBMP mod build 1）
+# 网络层
+
+## 现在用的：文件通道 + TCP 桥接（2026-11-05 起，0.3.1）
+
+**Steam P2P 从 Lua 用不了**（2026-11-05 自测，build 26439385，实例 A 由 Steam 启动）：
+- SteamCore 的 `FSteamID` 是 8 字节、没有反射字段的结构体（CXXHeaderDump `SteamCore.hpp`：`struct FSteamID {}; // Size: 0x8`）
+- UE4SS 把它返回成**空的 Lua 表**，再传回去时按字段填，所以是全 0。实测：
+  - `User.GetSteamID()` → `BreakSteamID` 得到 `"0"`
+  - `MakeSteamID("76561197960265729")` → `BreakSteamID` 也是 `"0"`
+  - 好友 `GetFriendByIndex(0)` → `GetFriendPersonaName` 得到空串
+  - `SendP2PPacket` 返回 false
+- 不带 `FSteamID` 的调用正常：`GetPersonaName`、`GetFriendCount`（86）、`SetRichPresence`
+- 所以下面"Steam P2P"一节的设计不能用；代码留着（命令 `steamhost`/`steamjoin`），作为以后做 C++ 或蓝图 mod 时的参考
+
+**替代方案**：
+- 双开测试已经验证过的 `localfile` 通道：两个只追加的帧文件 `VBMP_link_A2B.bin`（房主写）/ `VBMP_link_B2A.bin`（客户端写），帧 = 2 字节小端长度 + 内容
+- 每台电脑运行 `tools/dist/vbmp-bridge.ps1`（PowerShell 里内嵌 C#）：
+  - 把本机写出的完整帧通过 TCP 发给对方，把收到的完整帧追加进本机的接收文件
+  - 房主监听 TCP 27777（IPv4/IPv6 双栈），客户端去连；断线后自动重连
+  - 连接时跳到发送文件里最后一个完整帧的边界：旧包不补发，流不会错位
+- 命令 `host`/`join`（热键 Ctrl+Shift+H/J、面板按钮）走这个通道；`lanhost`/`lanjoin` 仍是同机双开、不经过桥接
+- 同机测试桥接：实例 B 的通道文件放在 `Saved\VBMP_B\`，用 `tools/remote/bridge_pair.ps1` 在 gaming PC 上起一对桥接（127.0.0.1）
+- 只支持 2 人
+- 连通性靠玩家自己解决：同一局域网；虚拟局域网（Tailscale / ZeroTier / Radmin VPN）；或者端口转发
+- Windows 防火墙默认挡住入站（2026-11-05 实测：笔记本连 gaming PC 的 27777 超时）。房主要运行 `firewall-allow.bat`，或在弹窗里点允许
+- TCP 自带可靠和有序，所以 `reliable` 标志在这条通道上没有作用；丢包时会有短暂卡顿
+
+---
+
+# 旧设计：Steam P2P（Phase 2，VBMP mod build 1；从 Lua 用不了，见上）
 
 ## 传输：Steam P2P，纯 Lua
 

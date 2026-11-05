@@ -47,7 +47,8 @@ $entries = $names | ForEach-Object {
 [IO.File]::WriteAllText((Join-Path $ue 'Mods\mods.json'), "[`r`n" + ($entries -join ",`r`n") + "`r`n]")
 "VBMP $Version, UE4SS $Ue4ssBuild" | Out-File (Join-Path $ue 'VBMP_INSTALLED.txt') -Encoding ascii
 
-foreach ($f in 'install.ps1', 'install.bat', 'uninstall.ps1', 'uninstall.bat', 'README.txt') {
+foreach ($f in 'install.ps1', 'install.bat', 'uninstall.ps1', 'uninstall.bat', 'README.txt',
+        'vbmp-bridge.ps1', 'bridge-host.bat', 'bridge-join.bat', 'firewall-allow.bat') {
     Copy-Item (Join-Path $root "tools\dist\$f") $out
 }
 

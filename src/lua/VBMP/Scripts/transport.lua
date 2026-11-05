@@ -1,6 +1,11 @@
 -- VBMP transports. Both expose: init() -> ok, err; selfId; send(toId, bytes, reliable);
 -- poll(handler) where handler(bytes) gets each received packet.
 --
+-- steam: NOT USABLE FROM LUA (self-test 2026-11-05, build 26439385): FSteamID is an 8-byte
+--   struct with no reflected fields, so UE4SS turns it into an empty Lua table and passes it
+--   back as zeros: GetSteamID -> BreakSteamID gave "0", MakeSteamID(s) -> BreakSteamID gave
+--   "0", a friend's id gave an empty name, SendP2PPacket returned false. Kept for reference;
+--   the two-PC game uses localfile + TCP bridge instead.
 -- steam: SteamCore plugin (shipped with the game), old ISteamNetworking P2P via Blueprint
 --   UFunctions (build 23764881, SteamCore.hpp):
 --   UNetworking  SendP2PPacket(FSteamID, TArray<uint8>, ESteamP2PSend, int32 Channel),
@@ -150,9 +155,12 @@ end
 -- localfile: two game processes on the same PC (dual-instance testing). Each direction is an
 -- append-only file of length-prefixed frames ("<s2"); the reader remembers its offset and only
 -- consumes complete frames. Slot A is id 1, slot B is id 2 (fake SteamIDs).
+-- The same files carry the two-PC game: tools/dist/vbmp-bridge.ps1 on each PC pipes the outgoing
+-- file to the other PC over TCP and appends what arrives to the incoming file (frames whole).
+-- dir: folder of the link files (default Saved\).
 
-function M.localfile(log, slot)
-    local saved = (os.getenv("LOCALAPPDATA") or ".") .. "\\VOIDBREAKER\\Saved\\"
+function M.localfile(log, slot, dir)
+    local saved = dir or ((os.getenv("LOCALAPPDATA") or ".") .. "\\VOIDBREAKER\\Saved\\")
     local other = slot == "A" and "B" or "A"
     local T = {
         kind = "localfile",
@@ -168,7 +176,7 @@ function M.localfile(log, slot)
     function T.init()
         -- Start our direction fresh; the reader resets its offset when the file shrinks.
         local f = io.open(outPath, "wb")
-        if not f then return false, "cannot write " .. outPath end
+        if not f then return false, "cannot write " .. outPath .. "（先启动 VBMP 联机桥接）" end
         f:close()
         local i = io.open(inPath, "rb")
         if i then offset = i:seek("end"); i:close() end   -- ignore frames from an older run

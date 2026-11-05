@@ -16,4 +16,4 @@ UE4SS.log
 *.dmp
 
 # built packages
-dist/
+/dist/

@@ -168,7 +168,9 @@ local function backupSave(mode)
     if dst then dst:write(data); dst:close(); log("save backed up to " .. name) end
 end
 
--- via: "steam" (default) or "localfile" (two game processes on this PC, slot A <-> slot B)
+-- via: "bridge" (default: two PCs, link files piped over TCP by tools/dist/vbmp-bridge.ps1;
+--      host writes the A->B file, client the B->A file), "localfile" (two game processes on
+--      this PC, by instance slot) or "steam" (does not work from Lua, see transport.lua)
 local function startSession(mode, hostId, via)
     stopSession()
     if mode ~= "loopback" then pcall(backupSave, mode) end
@@ -181,6 +183,12 @@ local function startSession(mode, hostId, via)
         if not slot then log("localfile: no instance slot yet"); return end
         tr = transport.localfile(log, slot)
         if mode == "client" then hostId = tr.peerId end
+    elseif via == "bridge" then
+        -- A second game process on the same PC (bridge test) keeps its link files apart.
+        local dir = (slot == "B") and (SAVED .. "VBMP_B\\") or SAVED
+        tr = transport.localfile(log, mode == "host" and "A" or "B", dir)
+        if mode == "client" then hostId = tr.peerId end
+        log("bridge transport: " .. mode .. " via link files in " .. dir)
     else
         tr = transport.steam(log)
     end
@@ -209,8 +217,10 @@ end
 
 local function command(cmd)
     log("command: " .. cmd)
-    if cmd == "host" then startSession("host")
-    elseif cmd == "join" then startSession("client")
+    if cmd == "host" then startSession("host", nil, "bridge")
+    elseif cmd == "join" then startSession("client", nil, "bridge")
+    elseif cmd == "steamhost" then startSession("host", nil, "steam")
+    elseif cmd == "steamjoin" then startSession("client", nil, "steam")
     elseif cmd == "loopback" then startSession("loopback")
     elseif cmd == "lanhost" then startSession("host", nil, "localfile")
     elseif cmd == "lanjoin" then startSession("client", nil, "localfile")
