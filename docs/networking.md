@@ -1,6 +1,22 @@
 # 网络层
 
-## 现在用的：文件通道 + TCP 桥接（2026-11-05 起，0.3.1）
+## 默认：Steam P2P 辅助进程（2026-11-05 起，0.4.0）
+
+- `src/lua/VBMP/steam/vbmp-steam.ps1`（PowerShell 内嵌 C#）。开房 / 加入时由 main.lua 用 `os.execute('start … -WindowStyle Hidden')` 启动，不用玩家手动运行
+- 它在独立进程里设置 `SteamAppId=2615540`（appmanifest），加载游戏自带的 `Engine\Binaries\ThirdParty\Steamworks\Steamv161\Win64\steam_api64.dll`，用真正的 64 位 SteamID 收发旧版 ISteamNetworking P2P 包（全部可靠通道）
+- 接口来源：DLL 导出表（1089 个导出，含 `SteamAPI_SteamUser_v023`、`SteamAPI_SteamFriends_v017`、`SteamAPI_SteamNetworking_v006`、`SteamAPI_ManualDispatch_*`；DLL 里的接口版本字符串 `SteamUser023`/`SteamFriends017`/`SteamNetworking006`），参数签名对照 Steamworks.NET 自动生成的 NativeMethods.cs
+- 和游戏之间用通道文件交换（与 TCP 桥接相同）：房主写 `VBMP_link_A2B.bin`，客户端写 `VBMP_link_B2A.bin`
+- 发现：房主 rich presence `vbmp=host`，客户端 `vbmp=client`；客户端在好友里找 `host`，找不到时如果只有一个好友在玩 VOID/BREAKER 就连他；`VBMP.ini` 的 `host=<SteamID64>` 可以直接指定
+- 房主用手动回调分发处理 `P2PSessionRequest_t`（1202），只接受好友（`GetFriendRelationship` = 3）；只接一个队友
+- 生命周期：`Saved\VBMP_steam_session.txt` 写着 `<role> <token>`；内容变了、文件没了或游戏进程退出，辅助进程就退出（清掉 rich presence）。状态写 `VBMP_steam_status.txt`，日志写 `VBMP_steam.log`
+- 自测（2026-11-05，gaming PC，同一个 Steam 账号）：
+  - 不开游戏时探测：初始化成功，SteamID 17 位，好友 86，rich presence 写入后能读回，给自己发的 P2P 包收到了
+  - 游戏运行时开房：辅助进程和游戏同时初始化 Steam 没有冲突，游戏里显示 "Steam：等待好友加入"
+  - 离开 → 辅助进程退出；加入 → 显示 "没有找到开房的好友"；关游戏 → 辅助进程退出
+  - **没测**：两个账号之间真正连上（需要第二个 Steam 账号）
+- 备用：`VBMP.ini` 写 `transport=bridge` 改走下面的 TCP 桥接
+
+## 备用：文件通道 + TCP 桥接（0.3.1；0.4.0 起需要 `transport=bridge`）
 
 **Steam P2P 从 Lua 用不了**（2026-11-05 自测，build 26439385，实例 A 由 Steam 启动）：
 - SteamCore 的 `FSteamID` 是 8 字节、没有反射字段的结构体（CXXHeaderDump `SteamCore.hpp`：`struct FSteamID {}; // Size: 0x8`）

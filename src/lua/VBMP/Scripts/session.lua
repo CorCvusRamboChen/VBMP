@@ -82,7 +82,10 @@ function M.new(opts)
     local function friends() return FindFirstOf("Friends") end
     local function utils() return StaticFindObject("/Script/SteamCore.Default__SteamUtilities") end
 
+    -- Only the in-Lua Steam transport (unusable, see transport.lua) uses SteamCore presence; the
+    -- Steam helper process (steam/vbmp-steam.ps1) sets its own and must not be overwritten.
     local function setPresence(value)
+        if tr.kind ~= "steam" then return end
         local f = friends()
         if valid(f) then pcall(function() f:SetRichPresence("vbmp", value) end) end
     end
@@ -214,7 +217,7 @@ function M.new(opts)
             if S.mode ~= "loopback" then send(id, T.BYE, true) end
             dropPeer(id, "session stopped")
         end
-        if S.mode ~= "loopback" then
+        if tr.kind == "steam" then
             local f = friends()
             if valid(f) then pcall(function() f:ClearRichPresence() end) end
         end
@@ -443,9 +446,9 @@ function M.new(opts)
                 timers.hello = 0
                 send(S.hostId, T.HELLO, true, M.MOD_BUILD, S.selfName)
             end
-            if now - started > HELLO_GIVE_UP then
+            if now - started > (opts.helloGiveUp or HELLO_GIVE_UP) then
                 fail("连接超时（房主没有回应）")
-                log("join: host did not answer in " .. HELLO_GIVE_UP .. " s")
+                log("join: host did not answer in " .. (opts.helloGiveUp or HELLO_GIVE_UP) .. " s")
             end
             return
         end

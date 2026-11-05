@@ -146,7 +146,80 @@ local interact = require("interact").new(log)
 local session = nil
 local lastNow = nil
 
+---------------------------------------------------------------------------------------------
+-- Steam helper process (steam/vbmp-steam.ps1). SteamCore's FSteamID cannot cross into Lua
+-- (docs/networking.md), so a separate process loads the game's steam_api64.dll, uses real
+-- SteamIDs for P2P, and swaps frames with us through the link files. It exits when
+-- VBMP_steam_session.txt no longer holds its "<role> <token>" or the game exits.
+
+local STEAM_SESSION = SAVED .. "VBMP_steam_session.txt"
+local STEAM_STATUS = SAVED .. "VBMP_steam_status.txt"
+local steamHelper = nil      -- { role, token, state, detail, peers, traffic }
+
+local function helperScript()
+    local candidates = {}
+    local src = (debug.getinfo(1, "S") or {}).source or ""
+    if src:sub(1, 1) == "@" then
+        local d = src:sub(2):match("^(.*)[\\/]Scripts[\\/][^\\/]+$")
+        if d then table.insert(candidates, d .. "\\steam\\vbmp-steam.ps1") end
+    end
+    table.insert(candidates, "ue4ss\\Mods\\VBMP\\steam\\vbmp-steam.ps1")
+    table.insert(candidates, "Mods\\VBMP\\steam\\vbmp-steam.ps1")
+    for _, c in ipairs(candidates) do
+        local f = io.open(c, "r")
+        if f then f:close(); return c end
+    end
+    return nil
+end
+
+local function stopSteamHelper()
+    if steamHelper then
+        os.remove(STEAM_SESSION)
+        log("steam helper asked to stop")
+        steamHelper = nil
+    end
+end
+
+local function startSteamHelper(role, dir, hostId)
+    local script = helperScript()
+    if not script then return false, "找不到 steam\\vbmp-steam.ps1（重新安装 VBMP）" end
+    local token = tostring(os.time()) .. tostring(math.random(1000, 9999))
+    local f = io.open(STEAM_SESSION, "w")
+    if not f then return false, "写不了 " .. STEAM_SESSION end
+    f:write(role .. " " .. token)
+    f:close()
+    os.remove(STEAM_STATUS)
+    local cmd = string.format(
+        'start "VBMP Steam" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Role %s -Token %s -Dir "%s"%s',
+        script, role, token, (dir:gsub("\\$", "")), hostId and (" -HostId " .. tostring(hostId)) or "")
+    os.execute(cmd)
+    steamHelper = { role = role, token = token, state = "starting", detail = "正在启动 Steam 联机" }
+    log("steam helper started: " .. role .. " (" .. script .. ")")
+    return true
+end
+
+-- Read the helper's status file; toast when its state changes.
+local function pollSteamHelper()
+    if not steamHelper then return end
+    local f = io.open(STEAM_STATUS, "r")
+    if not f then return end
+    local st = { peers = {} }
+    for line in f:lines() do
+        local k, v = line:match("^(%w+)=(.*)$")
+        if k == "peer" then table.insert(st.peers, v) elseif k then st[k] = v end
+    end
+    f:close()
+    if st.state and st.state ~= steamHelper.state then
+        log("steam helper: " .. st.state .. " - " .. tostring(st.detail))
+        pcall(hud.notify, "Steam：" .. tostring(st.detail))
+    end
+    steamHelper.state = st.state or steamHelper.state
+    steamHelper.detail = st.detail or steamHelper.detail
+    steamHelper.traffic = st.traffic
+end
+
 local function stopSession()
+    stopSteamHelper()
     if session then
         if session.mode == "client" then pcall(saveguard.clientStopped) end
         pcall(session.stop)
@@ -168,9 +241,11 @@ local function backupSave(mode)
     if dst then dst:write(data); dst:close(); log("save backed up to " .. name) end
 end
 
--- via: "bridge" (default: two PCs, link files piped over TCP by tools/dist/vbmp-bridge.ps1;
---      host writes the A->B file, client the B->A file), "localfile" (two game processes on
---      this PC, by instance slot) or "steam" (does not work from Lua, see transport.lua)
+-- via: "steam" (default: two PCs over Steam P2P through the helper process above),
+--      "bridge" (two PCs, link files piped over TCP by tools/dist/vbmp-bridge.ps1; VBMP.ini
+--      transport=bridge), "localfile" (two game processes on this PC, by instance slot) or
+--      "steamlua" (SteamCore from Lua: does not work, see transport.lua).
+--      steam and bridge share the link files: host writes A->B, client B->A.
 local function startSession(mode, hostId, via)
     stopSession()
     if mode ~= "loopback" then pcall(backupSave, mode) end
@@ -183,16 +258,21 @@ local function startSession(mode, hostId, via)
         if not slot then log("localfile: no instance slot yet"); return end
         tr = transport.localfile(log, slot)
         if mode == "client" then hostId = tr.peerId end
-    elseif via == "bridge" then
+    elseif via == "bridge" or via == "steam" then
         -- A second game process on the same PC (bridge test) keeps its link files apart.
         local dir = (slot == "B") and (SAVED .. "VBMP_B\\") or SAVED
         tr = transport.localfile(log, mode == "host" and "A" or "B", dir)
         if mode == "client" then hostId = tr.peerId end
-        log("bridge transport: " .. mode .. " via link files in " .. dir)
+        log(via .. " transport: " .. mode .. " via link files in " .. dir)
     else
         tr = transport.steam(log)
     end
     local ok, err = tr.init()
+    if ok and via == "steam" then
+        local cfgHost = readIni().host
+        ok, err = startSteamHelper(mode, (slot == "B") and (SAVED .. "VBMP_B\\") or SAVED,
+            cfgHost and math.tointeger(tonumber(cfgHost)) or nil)
+    end
     if not ok then
         log("transport init failed: " .. tostring(err))
         session = { state = "failed", describe = function() return { "联机启动失败：" .. tostring(err) } end,
@@ -211,16 +291,19 @@ local function startSession(mode, hostId, via)
         interact = (mode ~= "loopback") and interact or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
+        -- Steam: finding the host's presence and NAT traversal take longer than a file link
+        helloGiveUp = (via == "steam") and 90 or nil,
     })
     session.start(monoTime() or 0)
 end
 
 local function command(cmd)
     log("command: " .. cmd)
-    if cmd == "host" then startSession("host", nil, "bridge")
-    elseif cmd == "join" then startSession("client", nil, "bridge")
-    elseif cmd == "steamhost" then startSession("host", nil, "steam")
-    elseif cmd == "steamjoin" then startSession("client", nil, "steam")
+    local via = (readIni().transport == "bridge") and "bridge" or "steam"
+    if cmd == "host" then startSession("host", nil, via)
+    elseif cmd == "join" then startSession("client", nil, via)
+    elseif cmd == "bridgehost" then startSession("host", nil, "bridge")
+    elseif cmd == "bridgejoin" then startSession("client", nil, "bridge")
     elseif cmd == "loopback" then startSession("loopback")
     elseif cmd == "lanhost" then startSession("host", nil, "localfile")
     elseif cmd == "lanjoin" then startSession("client", nil, "localfile")
@@ -245,6 +328,10 @@ end
 
 local function writeStatus()
     local lines = session and session.describe() or { "未联机" }
+    if steamHelper then
+        table.insert(lines, "Steam：" .. tostring(steamHelper.detail))
+        if steamHelper.traffic then table.insert(lines, "  " .. steamHelper.traffic) end
+    end
     if slot then table.insert(lines, 1, "实例：" .. slot) end
     local text = ""
     for _, l in ipairs(lines) do text = text .. l .. "\n" end
@@ -288,7 +375,7 @@ local function netStep()
     end
 
     statusTimer = statusTimer + dt
-    if statusTimer >= 1 then statusTimer = 0; writeStatus() end
+    if statusTimer >= 1 then statusTimer = 0; pcall(pollSteamHelper); writeStatus() end
 end
 
 local function renderStep()
