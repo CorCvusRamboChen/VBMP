@@ -5,6 +5,9 @@ VBMP —— VOID/BREAKER 联机 mod（测试版）
   2. 双击 install.bat。它会自动在 Steam 库里找到 VOID/BREAKER，把 UE4SS 和 mod 放进
      游戏的 VOIDBREAKER\Binaries\Win64\ 目录。不会修改任何游戏原文件。
   3. 从 Steam 正常启动游戏。会多出一个黑色日志窗口，这是正常的，不要关。
+  4. 以后的新版本会自动更新：每次启动游戏时自动检查 GitHub 上的新版本
+     （github.com/CorCvusRamboChen/VBMP），下载并校验后提示"已更新，重启游戏生效"。
+     不想自动更新：在 %LOCALAPPDATA%\VOIDBREAKER\Saved\VBMP.ini 里写一行 autoupdate=0
 
 联机（2 人；两台电脑都要装这个包；两个人必须是 Steam 好友）
   走 Steam P2P：不用互报 IP、不用虚拟局域网、不用改防火墙。
@@ -40,7 +43,7 @@ VBMP —— VOID/BREAKER 联机 mod（测试版）
     2. 朋友双击 bridge-join.bat，输入房主的地址，看到"已连上"；窗口不要关。
     3. 和上面一样在游戏里 [开房] / [加入好友]。
 
-当前版本能做什么（0.8.4）
+当前版本能做什么（0.8.5）
   - 加入时自动读进房主的世界（关卡、进度、难度跟房主一样），角色、武器、背包、货币还是自己的
   - 房主换关卡后，客户端会自动跟过去（会短暂回到主菜单再进入）
   - 敌人由房主计算：大家看到同样的敌人、血量和死亡；客户端打敌人会算到房主那边

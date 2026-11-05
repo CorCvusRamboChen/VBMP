@@ -138,7 +138,8 @@ local function attach()
 end
 
 local function computeSignature()
-    local parts = { status, tostring(confirmFile), api.carryMessage() or "" }
+    local v, upd = api.version()
+    local parts = { status, tostring(confirmFile), api.carryMessage() or "", tostring(v), tostring(upd and upd.state), tostring(upd and upd.detail) }
     for _, l in ipairs(api.sessionLines()) do table.insert(parts, (l:gsub("%d+", ""))) end
     local fr = api.friends()
     table.insert(parts, fr.state or "")
@@ -151,7 +152,11 @@ end
 local function rebuild()
     body:ClearChildren()
     buttons = {}
-    addLine("VBMP 联机", 22)
+    local v, upd = api.version()
+    addLine("VBMP 联机" .. (v and ("  v" .. v) or "  (开发版)"), 22)
+    if upd and upd.state == "updated" then addLine("  " .. tostring(upd.detail), 15)
+    elseif upd and upd.state == "error" then addLine("  " .. tostring(upd.detail), 13)
+    elseif upd and (upd.state == "checking" or upd.state == "downloading") then addLine("  正在检查更新…", 13) end
 
     local lines = api.sessionLines()
     if #lines > 0 then

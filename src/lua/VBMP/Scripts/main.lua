@@ -219,6 +219,51 @@ local function startSteamHelper(role, dir, hostId)
     return true
 end
 
+-- Auto update (steam/vbmp-update.ps1): once per game start, in the background; new files take
+-- effect at the next start. Off with VBMP.ini autoupdate=0; skipped for builds without
+-- Mods\VBMP\version.txt (development deploys).
+local UPDATE_STATUS = SAVED .. "VBMP_update_status.txt"
+local updateInfo = { state = "idle" }
+
+local function installedVersion()
+    local script = helperScript()
+    if not script then return nil end
+    local f = io.open((script:gsub("[\\/]steam[\\/]vbmp%-steam%.ps1$", "\\version.txt")), "r")
+    if not f then return nil end
+    local v = (f:read("a") or ""):match("[%w%.%-]+")
+    f:close()
+    return v
+end
+
+local function startUpdateCheck()
+    if readIni().autoupdate == "0" then updateInfo = { state = "off" }; return end
+    local script = helperScript()
+    if not script then return end
+    local upd = script:gsub("vbmp%-steam%.ps1$", "vbmp-update.ps1")
+    os.remove(UPDATE_STATUS)
+    os.execute(string.format(
+        'start "VBMP update" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Dir "%s"',
+        upd, (SAVED:gsub("\\$", ""))))
+    updateInfo = { state = "checking" }
+    log("update check started")
+end
+
+local function pollUpdate()
+    if updateInfo.state ~= "checking" and updateInfo.state ~= "downloading" then return end
+    local f = io.open(UPDATE_STATUS, "r")
+    if not f then return end
+    local st = {}
+    for line in f:lines() do
+        local k, v = line:match("^(%w+)=(.*)$")
+        if k then st[k] = v end
+    end
+    f:close()
+    if not st.state or st.state == updateInfo.state then return end
+    updateInfo = st
+    log("update: " .. st.state .. " " .. tostring(st.detail))
+    if st.state == "updated" then pcall(hud.notify, "VBMP " .. tostring(st.detail), nil, 15) end
+end
+
 -- Friends hosting VBMP, for the main-menu panel: a short-lived helper ("-Role list") writes
 -- Saved\VBMP_steam_hosts.txt.
 local STEAM_HOSTS = SAVED .. "VBMP_steam_hosts.txt"
@@ -437,6 +482,7 @@ menuApi = {
         return ok, err
     end,
     carryMessage = function() return carryMsg end,
+    version = function() return installedVersion(), updateInfo end,
 }
 require("menu").start(menuApi)
 
@@ -574,6 +620,9 @@ LoopInGameThreadWithDelay(NET_MS, function() guarded("net", netStep) end)
 LoopInGameThreadWithDelay(250, function() guarded("saveguard", saveguard.tick) end)
 -- World sync drives a client through menu -> Continue; it must keep running while levels load.
 LoopInGameThreadWithDelay(100, function() guarded("worldsync", function() worldsync.tick(0.1) end) end)
+-- Auto update: check once, 5 s after the mod loads; read the result every second.
+ExecuteInGameThreadWithDelay(5000, function() guarded("update", startUpdateCheck) end)
+LoopInGameThreadWithDelay(1000, function() guarded("update", pollUpdate) end)
 -- Traversal terrain swaps must also run while the client is loading the host's world.
 LoopInGameThreadWithDelay(500, function() guarded("traversal", function() traversal.tick(0.5) end) end)
 

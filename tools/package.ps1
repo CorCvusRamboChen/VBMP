@@ -33,6 +33,9 @@ $t = $t -replace '(?m)^ConsoleEnabled = 0', 'ConsoleEnabled = 1'
 [IO.File]::WriteAllText($ini, $t)
 
 foreach ($m in 'VBMP', 'VBTools') { Copy-Item (Join-Path $root "src\lua\$m") (Join-Path $ue 'Mods') -Recurse }
+# The auto updater (VBMP\steam\vbmp-update.ps1) compares this with the latest GitHub release;
+# development deploys (tools\deploy.ps1) have no version.txt and are never updated.
+[IO.File]::WriteAllText((Join-Path $ue 'Mods\VBMP\version.txt'), $Version)
 $mods = @(
     'CheatManagerEnablerMod : 1', 'ConsoleCommandsMod : 1', 'ConsoleEnablerMod : 1', 'SplitScreenMod : 0',
     'LineTraceMod : 0', 'BPML_GenericFunctions : 1', 'BPModLoaderMod : 1', 'VBMP : 1', 'VBTools : 1', '',
@@ -56,4 +59,7 @@ $zip = Join-Path $root "dist\VBMP-$Version.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
-"package: $zip ($size MB)"
+# Checksum file for the release (the updater refuses a download that does not match).
+$hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+[IO.File]::WriteAllText("$zip.sha256", "$hash  VBMP-$Version.zip`n")
+"package: $zip ($size MB), sha256 $hash"
