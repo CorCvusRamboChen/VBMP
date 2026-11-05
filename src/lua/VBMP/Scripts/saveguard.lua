@@ -25,9 +25,15 @@
 --   * META = out-of-run names in BP_SaveGame_Lima_C (CXX dump; classification as in
 --     research/vbtools-01-difficulty-mods.md): Voidium, perma upgrades UPG_*, the six stats and
 --     their *Ranks, unlock lists, research, skins, chaos missions/fragments, iteration records,
---     collected logs / viewed emails and the tutorial "HasShown*" flags. Deliberately NOT taken:
---     story abilities (UnlockedDash/Grapple/Throw/WallRun?), HasHackModule*, Decryptors,
---     IntegrationKeys, FoundWorldSchematics, InventorySchematics (tied to the host's world/run).
+--     collected logs / viewed emails and the tutorial "HasShown*" flags, plus Decryptors and
+--     schematics (InventorySchematics, FoundWorldSchematics): the game's own backpack page labels
+--     decryptors, Voidium and chaos fragments "死亡后保留" (kept after death), credits (VoidCoins)
+--     "死亡后删除", and says schematics are kept after death (screenshot 2026-11-05).
+--     Deliberately NOT taken: story abilities (UnlockedDash/Grapple/Throw/WallRun?),
+--     HasHackModule*, IntegrationKeys (tied to the host's world/run).
+--   * ChaosFragments ("完成混乱任务获得的稀有货币奖励") is taken when the client save has it, but
+--     neither SaveGameData nor MasterSave wrote a picked-up fragment into the file (self-test
+--     2026-11-05), so fragments earned in co-op may not reach it.
 
 local gvas = require("gvas")
 local backups = require("backups")
@@ -39,7 +45,8 @@ for n in ([[Voidium Vitality Ergonomics Capacity Endurance Cognition Exponent Cu
 FullyUnlockedMods PurchasableMods UnlockedWeapons UnlockedBodyMods UnlockedWeaponMods UnlockedWeaponMasterMods
 UnlockedPermaUpgrades UnlockedSchematics ResearchedSchematics ResearchData UnlockedSkins UnlockedChasis
 ChaosFragments ChaosMissionAchieved_Act1 ChaosMissionAchieved_Act2 ChaosMissionAct1 ChaosMissionAct2
-CollectedLogs ViewedEmails MaxIterationReachedOnNormal MaxIterationReachedOnHard MaxIterationReachedOnInsanity]]):gmatch("%S+") do
+CollectedLogs ViewedEmails MaxIterationReachedOnNormal MaxIterationReachedOnHard MaxIterationReachedOnInsanity
+Decryptors InventorySchematics FoundWorldSchematics]]):gmatch("%S+") do
     META_EXACT[n] = true
 end
 function M.isMeta(name)
