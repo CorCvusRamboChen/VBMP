@@ -323,6 +323,11 @@ local function startSession(mode, hostId, via, steamHost)
         return
     end
     local cfg = readIni()
+    -- co-op enemy scaling (enemies.lua), host only; VBMP.ini enemy_health= / enemy_count=
+    enemies.scaling = {
+        health = tonumber(cfg.enemy_health) or 1.5,
+        count = tonumber(cfg.enemy_count) or 1.5,
+    }
     session = sessionLib.new({
         log = log, transport = tr, puppets = puppets, hud = hud, mode = mode,
         enemies = (mode ~= "loopback") and enemies or nil,

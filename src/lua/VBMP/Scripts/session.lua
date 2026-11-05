@@ -608,7 +608,8 @@ function M.new(opts)
             table.insert(lines, string.format("敌人：%d　（生成 %d　移除 %d　删除本地 %d）",
                 enemies.count(), es.spawned, es.removed, es.killedLocal) ..
                 string.format("　命中 发%d 收%d　子弹 转%d 放%d", es.hitsSent or 0, es.hitsApplied or 0,
-                    es.shotsSent or 0, es.shotsReplayed or 0))
+                    es.shotsSent or 0, es.shotsReplayed or 0) ..
+                ((S.mode == "host") and string.format("　加强 血%d 额外%d", es.scaled or 0, es.extras or 0) or ""))
             if enemies.role == "host" and enemies.aggro then
                 local n, toPeers = enemies.aggro.count()
                 local as = enemies.aggro.stats

@@ -101,6 +101,19 @@ function M.new(log, hud)
     }
     local timer = 0
     local hooked, hitHooked, fireHooked, hostHitHooked = false, false, false, false
+
+    -- Co-op scaling (coop-rules.md, user decision 2026-11-05: health x1.5 and count x1.5 for two
+    -- players; VBMP.ini enemy_health= / enemy_count=). Factor for N players: 1 + (f - 1) * (N - 1).
+    --   * health: MaxHealth/Health written directly (self-test 2026-11-05: a grunt written 70 -> 105
+    --     kept 105 and took damage from it normally; HealthMultiplier + SpawnHealth() changed
+    --     nothing). Clients follow through ENEMY_STATE.
+    --   * count: for each new non-boss enemy, extra copies of its class spawn next to it
+    --     (expected extras = factor - 1), capped. Extras never spawn extras.
+    E.scaling = { health = 1.5, count = 1.5 }
+    local extraAddrs = {}            -- address -> true for enemies we spawned as extras
+    local extraTimes = {}            -- os.clock() of recent extra spawns (rate cap)
+    local EXTRA_MAX_PER_10S, POOL_CAP = 8, 45
+    E.stats.extras, E.stats.scaled = 0, 0
     -- Host: who each enemy is after (Phase 3.4b, aggro.lua).
     E.aggro = aggroLib.new(log, E)
 
@@ -187,6 +200,7 @@ function M.new(log, hud)
     function E.setRole(role)
         pcall(E.aggro.clear)
         E.role = role
+        extraAddrs, extraTimes = {}, {}
         E.byId, E.idOf, E.pendingAdds, E.pendingSpawns, E.mirrors = {}, {}, {}, {}, {}
         E.pendingHits, E.hostHits, E.hostShots, E.clientShots = {}, {}, {}, {}
         tryHook()
@@ -207,6 +221,72 @@ function M.new(log, hud)
         send("ENEMY_SPAWN", true, id, path, l.X, l.Y, l.Z, r.Yaw)
         E.stats.spawned = E.stats.spawned + 1
         log(string.format("enemies: host tracks #%d %s", id, path:match("([^.]+)$") or path))
+    end
+
+    local function factor(f, players)
+        f = tonumber(f) or 1
+        if f <= 1 or players <= 1 then return 1 end
+        return 1 + (f - 1) * (players - 1)
+    end
+    local function isBoss(path) return path:lower():find("boss", 1, true) ~= nil end
+
+    -- Host, every tick while someone is connected: raise each tracked enemy's health once.
+    -- Enemies alive before the first player joined are raised then (keeping their health ratio).
+    function E.scaleHealth(players)
+        local f = factor(E.scaling.health, players)
+        if f <= 1 then return end
+        for _, e in pairs(E.byId) do
+            if not e.scaled and not e.dead and valid(e.actor) then
+                e.scaled = true
+                local hp, maxHp = health(e.actor)
+                if type(hp) == "number" and type(maxHp) == "number" and hp > 0 and maxHp > 0 then
+                    e.actor.MaxHealth = maxHp * f
+                    e.actor.Health = hp * f
+                    E.stats.scaled = E.stats.scaled + 1
+                    if E.stats.scaled <= 3 then
+                        log(string.format("enemies: health x%.2f %s %.0f -> %.0f", f, e.path:match("([^.]+)$") or e.path, maxHp, maxHp * f))
+                    end
+                end
+            end
+        end
+    end
+
+    -- Host: a new enemy entered the pool; maybe spawn extra copies of it next to it.
+    function E.spawnExtras(actor, players)
+        local addr = actor:GetAddress()
+        if extraAddrs[addr] then return end
+        local f = factor(E.scaling.count, players)
+        if f <= 1 then return end
+        local e = E.byId[E.idOf[addr]]
+        if not e or isBoss(e.path) then return end
+        local n = math.floor(f - 1)
+        if math.random() < (f - 1) - n then n = n + 1 end
+        if n <= 0 then return end
+        local now = os.clock()
+        local recent = {}
+        for _, t in ipairs(extraTimes) do if now - t < 10 then table.insert(recent, t) end end
+        extraTimes = recent
+        local alive = 0
+        for _, x in pairs(E.byId) do if not x.dead then alive = alive + 1 end end
+        local cls = actor:GetClass()
+        local world = actor:GetWorld()
+        local l = actor:K2_GetActorLocation()
+        local r = actor:K2_GetActorRotation()
+        for _ = 1, n do
+            if #extraTimes >= EXTRA_MAX_PER_10S or alive >= POOL_CAP then return end
+            local ang = math.random() * 2 * math.pi
+            local d = 140 + math.random() * 120
+            local x = world:SpawnActor(cls, { X = l.X + math.cos(ang) * d, Y = l.Y + math.sin(ang) * d, Z = l.Z + 40 },
+                { Pitch = 0, Yaw = r.Yaw, Roll = 0 })
+            if valid(x) then
+                extraAddrs[x:GetAddress()] = true
+                pcall(function() x:SpawnEnemyImmediate(false) end)
+                table.insert(extraTimes, now)
+                alive = alive + 1
+                E.stats.extras = E.stats.extras + 1
+                if E.stats.extras <= 3 then log("enemies: extra " .. (e.path:match("([^.]+)$") or e.path) .. " for #" .. E.idOf[addr]) end
+            end
+        end
     end
 
     -- Everything already tracked, to one client that joins mid-fight (sendTo is bound to it).
@@ -321,7 +401,19 @@ function M.new(log, hud)
         if not okR then log("enemies: shot routing failed: " .. tostring(errR)) end
         local adds = E.pendingAdds
         E.pendingAdds = {}
-        for _, a in ipairs(adds) do if valid(a) then track(a, send) end end
+        local players = 1 + ((ctx and ctx.peers) or 0)
+        for _, a in ipairs(adds) do
+            if valid(a) then
+                local fresh = not E.idOf[a:GetAddress()]
+                track(a, send)
+                if fresh then
+                    local ok, err = pcall(E.spawnExtras, a, players)
+                    if not ok then log("enemies: extra spawn failed: " .. tostring(err)) end
+                end
+            end
+        end
+        local okS, errS = pcall(E.scaleHealth, players)
+        if not okS then log("enemies: health scaling failed: " .. tostring(errS)) end
 
         local hits = E.hostHits
         E.hostHits = {}
