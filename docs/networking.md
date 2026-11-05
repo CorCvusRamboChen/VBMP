@@ -2,6 +2,9 @@
 
 ## 默认：Steam P2P 辅助进程（2026-11-05 起，0.4.0）
 
+- **0.8.4（2026-11-06）起辅助进程以 Steam appid 480（Spacewar）运行**：第一次真实两账号联机，客户端找到房主、发了 80 多个包，一个回复都没有；房主一直"等待好友加入"。在 gaming PC 上，游戏和客户端辅助进程都在运行时，用游戏的 appid 2615540 给自己发 P2P 包 5 秒没收到，用 480 一秒收到。判断：同一账号同一 appid 的多个进程共用 P2P，包被别的进程读走了。`VBMP.ini` 的 `steam_appid=` 可以改回去（两边必须一样）。副作用：Steam 状态多显示"正在玩 Spacewar"
+- 同时房主每 2 秒主动接受 rich presence 为 `client` 的好友，并发一个 1 字节的"敲门"包（`0xFF`，不是合法帧，客户端丢掉）；日志记录所有 Steam 回调、每个发送方的第一个包、被忽略的包
+
 - `src/lua/VBMP/steam/vbmp-steam.ps1`（PowerShell 内嵌 C#）。开房 / 加入时由 main.lua 用 `os.execute('start … -WindowStyle Hidden')` 启动，不用玩家手动运行
 - 它在独立进程里设置 `SteamAppId=2615540`（appmanifest），加载游戏自带的 `Engine\Binaries\ThirdParty\Steamworks\Steamv161\Win64\steam_api64.dll`，用真正的 64 位 SteamID 收发旧版 ISteamNetworking P2P 包（全部可靠通道）
 - 接口来源：DLL 导出表（1089 个导出，含 `SteamAPI_SteamUser_v023`、`SteamAPI_SteamFriends_v017`、`SteamAPI_SteamNetworking_v006`、`SteamAPI_ManualDispatch_*`；DLL 里的接口版本字符串 `SteamUser023`/`SteamFriends017`/`SteamNetworking006`），参数签名对照 Steamworks.NET 自动生成的 NativeMethods.cs

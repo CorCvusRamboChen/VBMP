@@ -194,6 +194,13 @@ local function stopSteamHelper()
     end
 end
 
+-- The helper runs as Steam app 480 (vbmp-steam.ps1 -AppId default) to stay apart from the game
+-- process; VBMP.ini steam_appid=<id> overrides it (both players must use the same value).
+local function steamAppIdArg()
+    local id = math.tointeger(tonumber(readIni().steam_appid or ""))
+    return id and (" -AppId " .. id) or ""
+end
+
 local function startSteamHelper(role, dir, hostId)
     local script = helperScript()
     if not script then return false, "找不到 steam\\vbmp-steam.ps1（重新安装 VBMP）" end
@@ -204,8 +211,8 @@ local function startSteamHelper(role, dir, hostId)
     f:close()
     os.remove(STEAM_STATUS)
     local cmd = string.format(
-        'start "VBMP Steam" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Role %s -Token %s -Dir "%s"%s',
-        script, role, token, (dir:gsub("\\$", "")), hostId and (" -HostId " .. tostring(hostId)) or "")
+        'start "VBMP Steam" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Role %s -Token %s -Dir "%s"%s%s',
+        script, role, token, (dir:gsub("\\$", "")), hostId and (" -HostId " .. tostring(hostId)) or "", steamAppIdArg())
     os.execute(cmd)
     steamHelper = { role = role, token = token, state = "starting", detail = "正在启动 Steam 联机" }
     log("steam helper started: " .. role .. " (" .. script .. ")")
@@ -222,8 +229,8 @@ local function refreshFriends()
     if not script then friendList = { state = "error", error = "找不到 steam\\vbmp-steam.ps1", hosts = {}, playing = {} }; return end
     os.remove(STEAM_HOSTS)
     os.execute(string.format(
-        'start "VBMP Steam list" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Role list -Dir "%s"',
-        script, (SAVED:gsub("\\$", ""))))
+        'start "VBMP Steam list" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Role list -Dir "%s"%s',
+        script, (SAVED:gsub("\\$", "")), steamAppIdArg()))
     friendList = { state = "loading", at = os.time(), hosts = {}, playing = {} }
 end
 

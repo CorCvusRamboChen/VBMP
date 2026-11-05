@@ -26,7 +26,13 @@ param(
     [string]$Token = '',
     [string]$Dir = (Join-Path $env:LOCALAPPDATA 'VOIDBREAKER\Saved'),
     [string]$HostId = '',
-    [string]$Dll = ''
+    [string]$Dll = '',
+    # Steam app id the helper runs as: 480 (Spacewar, Steam's test app, usable by every account).
+    # Under the game's own id (2615540) the helper shares P2P with the game process: with the
+    # game running, a P2P packet the helper sent to itself never arrived (5 s), as 480 it arrived
+    # in 1 s (2026-11-06); the first real two-account join got no answer at all under 2615540.
+    # Both players must use the same id (rich presence and P2P are per app).
+    [int]$AppId = 480
 )
 $ErrorActionPreference = 'Stop'
 
@@ -84,7 +90,8 @@ public static class VbmpSteam
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(IntPtr self, ulong id);
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_AllowP2PPacketRelay(IntPtr self, [MarshalAs(UnmanagedType.I1)] bool allow);
 
-    const int FRIEND_IMMEDIATE = 0x04, REL_FRIEND = 3, SEND_RELIABLE = 2, APPID = 2615540;
+    const int FRIEND_IMMEDIATE = 0x04, REL_FRIEND = 3, SEND_RELIABLE = 2, APPID = 2615540;   // the game (appmanifest)
+    public static int P2PAppId = APPID;   // what the helper initialises Steam as (-AppId)
     const int CB_SESSION_REQUEST = 1202, CB_CONNECT_FAIL = 1203;
     const int MAX_PACKET = 60000;
 
@@ -127,8 +134,8 @@ public static class VbmpSteam
 
     static bool Init()
     {
-        Environment.SetEnvironmentVariable("SteamAppId", APPID.ToString());
-        Environment.SetEnvironmentVariable("SteamGameId", APPID.ToString());
+        Environment.SetEnvironmentVariable("SteamAppId", P2PAppId.ToString());
+        Environment.SetEnvironmentVariable("SteamGameId", P2PAppId.ToString());
         SteamAPI_ManualDispatch_Init();
         IntPtr err = Marshal.AllocHGlobal(1024);
         Marshal.WriteByte(err, 0, 0);
@@ -143,8 +150,31 @@ public static class VbmpSteam
         me = SteamAPI_ISteamUser_GetSteamID(user);
         myName = S(SteamAPI_ISteamFriends_GetPersonaName(friends));
         SteamAPI_ISteamNetworking_AllowP2PPacketRelay(net, true);
-        Log("Steam 已初始化：" + myName + "（SteamID 共 " + me.ToString().Length + " 位）");
+        Log("Steam 已初始化：" + myName + "（SteamID 共 " + me.ToString().Length + " 位，appid " + P2PAppId + "）");
         return true;
+    }
+
+    static int callbacksLogged = 0;
+    static readonly HashSet<ulong> seenSenders = new HashSet<ulong>();
+    static readonly HashSet<ulong> knocked = new HashSet<ulong>();
+    static readonly byte[] KNOCK = new byte[] { 0xFF };   // 1 byte: never a valid frame (2-byte length + payload)
+
+    // Host, every 2 s: accept and knock on every friend whose presence says vbmp=client. Sending
+    // to a user opens the session from our side, so this does not depend on the
+    // P2PSessionRequest_t callback reaching this process (the game process runs SteamAPI for the
+    // same app and user too; first real test 2026-11-06: the client sent 80+ packets, the host's
+    // helper never reported anything).
+    static void KnockOnJoiners()
+    {
+        int n = SteamAPI_ISteamFriends_GetFriendCount(friends, FRIEND_IMMEDIATE);
+        for (int i = 0; i < n; i++)
+        {
+            ulong f = SteamAPI_ISteamFriends_GetFriendByIndex(friends, i, FRIEND_IMMEDIATE);
+            if (S(SteamAPI_ISteamFriends_GetFriendRichPresence(friends, f, Z("vbmp"))) != "client") continue;
+            SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(net, f);
+            bool ok = SteamAPI_ISteamNetworking_SendP2PPacket(net, f, KNOCK, 1, SEND_RELIABLE, 0);
+            if (knocked.Add(f)) Log("主动连接想加入的好友 " + Name(f) + "（发送" + (ok ? "成功" : "失败") + "）");
+        }
     }
 
     // Returns the remote ids of P2P session requests seen this frame (accepted or not).
@@ -158,6 +188,7 @@ public static class VbmpSteam
             {
                 int id = Marshal.ReadInt32(msg, 4);
                 IntPtr param = Marshal.ReadIntPtr(msg, 8);
+                if (callbacksLogged < 40) { callbacksLogged++; Log("Steam 回调 " + id); }
                 if (id == CB_SESSION_REQUEST && param != IntPtr.Zero)
                 {
                     ulong remote = (ulong)Marshal.ReadInt64(param, 0);
@@ -367,6 +398,12 @@ public static class VbmpSteam
                 else if (remote == hostId) SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(net, remote);
             });
 
+            if (host && peers.Count == 0 && DateTime.Now > nextScan)
+            {
+                nextScan = DateTime.Now.AddSeconds(2);
+                try { KnockOnJoiners(); } catch (Exception e) { Log("主动连接出错：" + e.Message); }
+            }
+
             if (!host && hostId == 0 && DateTime.Now > nextScan)
             {
                 nextScan = DateTime.Now.AddSeconds(2);
@@ -421,11 +458,21 @@ public static class VbmpSteam
                 uint got; ulong from;
                 if (!SteamAPI_ISteamNetworking_ReadP2PPacket(net, buf, (uint)buf.Length, out got, out from, 0)) break;
                 idle = false;
+                if (seenSenders.Add(from))
+                    Log(string.Format("第一次收到 {0} 的包：{1} 字节，好友关系 {2}", Name(from), got,
+                        SteamAPI_ISteamFriends_GetFriendRelationship(friends, from)));
+                if (got == 1 && buf[0] == 0xFF)
+                {
+                    // the host's knock (see KnockOnJoiners): opens the session, carries no data
+                    if (!host && from == hostId && knocked.Add(from)) Log("收到房主的连接");
+                    continue;
+                }
                 if (host)
                 {
                     if (!peers.ContainsKey(from))
                     {
-                        if (SteamAPI_ISteamFriends_GetFriendRelationship(friends, from) != REL_FRIEND) continue;
+                        int rel = SteamAPI_ISteamFriends_GetFriendRelationship(friends, from);
+                        if (rel != REL_FRIEND) { if (knocked.Add(from)) Log("忽略非好友 " + Name(from) + " 的包（好友关系 " + rel + "）"); continue; }
                         if (peers.Count >= 1) { Log("已经有一个队友了，忽略 " + Name(from)); continue; }
                         peers[from] = Name(from);
                         outOffset = LastBoundary(outPath); pending.Clear();
@@ -435,7 +482,7 @@ public static class VbmpSteam
                 }
                 else
                 {
-                    if (from != hostId) continue;
+                    if (from != hostId) { if (knocked.Add(from)) Log("忽略不是房主的 " + Name(from) + " 发来的包"); continue; }
                     if (lastSender != hostId) { Log("和房主连上了"); WriteStatus("connected", "已连上房主 " + peers[hostId]); }
                 }
                 lastSender = from;
@@ -479,6 +526,7 @@ public static class VbmpSteam
 
 Add-Type -TypeDefinition $code -Language CSharp
 [VbmpSteam]::Load($Dll)
+[VbmpSteam]::P2PAppId = $AppId
 try { [Console]::Title = "VBMP Steam 联机 - $Role（不要关）" } catch { }
 if ($Role -eq 'probe') { exit [VbmpSteam]::Probe($Dir) }
 if ($Role -eq 'list') { exit [VbmpSteam]::List($Dir) }
