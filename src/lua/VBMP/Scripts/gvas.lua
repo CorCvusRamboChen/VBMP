@@ -65,9 +65,14 @@ function M.parse(b)
     return res
 end
 
--- base with every property named in `names` (a set) replaced by donor's (or removed when the
--- donor has none - default values are not written). Returns bytes, kept, taken or nil, err.
+-- base with every property named in `names` (a set, or a predicate function(name) -> bool)
+-- replaced by donor's (or removed when the donor has none - default values are not written).
+-- Returns bytes, kept, taken or nil, err.
 function M.splice(base, donor, names)
+    if type(names) == "function" then
+        local fn = names
+        names = setmetatable({}, { __index = function(_, k) return fn(k) or nil end })
+    end
     local pb, e1 = M.parse(base)
     if not pb then return nil, "base: " .. e1 end
     local pd, e2 = M.parse(donor)

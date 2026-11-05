@@ -57,6 +57,8 @@
 - **不要从脚本强行开火**（`BP_Weapon_Base_C` 的 `FireProjectileEvent`/`Fire_SemiAuto`/`ForceStartShoot`）：2026-11-04 这样做 2 秒后游戏访问违例崩溃。测试伤害用 `GameplayStatics.ApplyPointDamage(目标, 伤害, 方向, {}, PC, 角色, DamageType_Normal_C)`；DamageType 传 nil 不会扣血
 - **Steam P2P 从 Lua 用不了**（2026-11-05）：SteamCore 的 `FSteamID` 没有反射字段，经过 UE4SS 变成空表、传回去是 0（自己的 ID、好友、发包对象全是 0）。两台电脑联机由独立的辅助进程 `src/lua/VBMP/steam/vbmp-steam.ps1` 加载游戏的 `steam_api64.dll` 走 Steam P2P，和游戏之间用通道文件（`docs/networking.md`）。它要在用户桌面会话里运行（Steam 在那里），从 ssh 测要用 /IT 计划任务。备用的 TCP 桥接 `tools/dist/vbmp-bridge.ps1`，同机测试用 `tools/remote/bridge_pair.ps1`
 - `tools/dev.ps1`、`dualtest-start.ps1` 要在 PowerShell 里直接运行：从 bash 用 `powershell -File … 2>&1` 调用时，ssh 新出现的 post-quantum 警告会被 PowerShell 5.1 当成错误，结果读不到回复、一直超时（2026-11-05）
+- **存档对象要等 `GI.MasterSave()` 才更新**：拾取的货币先记在角色和 GI 上，`GI.SaveGameData()` 只是把旧的 `LatestSaveGame` 写盘；要把当前状态写进存档用 `MasterSave()`（2026-11-05）。货币枚举 0 VoidCoins、1 Voidium、2 解密器、3 混沌碎片
+- 主菜单 `WBP_PlayMenu_C` 在 CommonUI 栈里，`IsInViewport()` 为假；找它要"优先在视口里的，否则任意有效实例"（`worldsync.lua`、`main.lua` 的 `pressContinue`）
 - **游戏更新后第一次启动要编译着色器**，主菜单可能十几分钟才出来（2026-11-05 build 26439385：约 12 分钟），VBDev 在这期间不响应
 - **自测**：`tools/selftest-start.ps1` 启动游戏并点"继续"（从不点"新游戏"），`tools/dev.ps1` 在游戏里执行 Lua 和截图（需要启用 VBDev）。测试前先存档槽，测完恢复。**不要从 ssh 直接运行 `steam.exe`**，游戏要通过 `launch_game.ps1`（一次性计划任务）在用户桌面里启动
 

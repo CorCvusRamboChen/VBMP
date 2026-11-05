@@ -138,6 +138,15 @@ hud.start({ log = log })
 local enemies = require("enemies").new(log, hud)
 local destruction = require("destruction").new(log)
 local saveguard = require("saveguard").new(log)
+local carryMsg = nil        -- shown on the main-menu panel
+saveguard.onCarried = function(changed)
+    if #changed == 0 then
+        carryMsg = "上次联机：没有新的局外成长要带回"
+    else
+        carryMsg = "上次联机的局外成长已带回你的存档（" .. #changed .. " 项；原存档已备份）"
+    end
+    pcall(hud.notify, carryMsg, nil, 8)
+end
 local worldsync = require("worldsync").new(log)
 local damagesync = require("damagesync").new(log)
 local downed = require("downed").new(log, hud)
@@ -198,6 +207,46 @@ local function startSteamHelper(role, dir, hostId)
     return true
 end
 
+-- Friends hosting VBMP, for the main-menu panel: a short-lived helper ("-Role list") writes
+-- Saved\VBMP_steam_hosts.txt.
+local STEAM_HOSTS = SAVED .. "VBMP_steam_hosts.txt"
+local friendList = { state = "idle", hosts = {}, playing = {} }
+
+local function refreshFriends()
+    local script = helperScript()
+    if not script then friendList = { state = "error", error = "找不到 steam\\vbmp-steam.ps1", hosts = {}, playing = {} }; return end
+    os.remove(STEAM_HOSTS)
+    os.execute(string.format(
+        'start "VBMP Steam list" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Role list -Dir "%s"',
+        script, (SAVED:gsub("\\$", ""))))
+    friendList = { state = "loading", at = os.time(), hosts = {}, playing = {} }
+end
+
+local function friendsNow()
+    if friendList.state == "loading" then
+        local f = io.open(STEAM_HOSTS, "r")
+        if f then
+            local first = f:read("l") or ""
+            local hosts, playing = {}, {}
+            for line in f:lines() do
+                local kind, id, name = line:match("^(%a+)\t(%d+)\t(.*)$")
+                local entry = id and { id = math.tointeger(tonumber(id)), name = name ~= "" and name or id }
+                if entry and kind == "host" then table.insert(hosts, entry)
+                elseif entry and kind == "playing" then table.insert(playing, entry) end
+            end
+            f:close()
+            if first == "ok" then
+                friendList = { state = "ok", hosts = hosts, playing = playing }
+            else
+                friendList = { state = "error", error = (first:match("^error\t(.*)$") or "读取失败"), hosts = {}, playing = {} }
+            end
+        elseif os.time() - friendList.at > 25 then
+            friendList = { state = "error", error = "读取好友列表超时（Steam 开着吗？）", hosts = {}, playing = {} }
+        end
+    end
+    return friendList
+end
+
 -- Read the helper's status file; toast when its state changes.
 local function pollSteamHelper()
     if not steamHelper then return end
@@ -229,24 +278,18 @@ local function stopSession()
     puppets.clear()
 end
 
--- Insurance before any online session. Phase 2 worlds are still independent, so the save is
--- the player's own; once the host drives client worlds (Phase 3) clients must not save at all.
-local function backupSave(mode)
-    local src = io.open(SAVED .. "SaveGames\\LimaSaveGame.sav", "rb")
-    if not src then return end
-    local data = src:read("a")
-    src:close()
-    local name = SAVED .. "VBMP_backup_" .. mode .. "_" .. os.date("%Y%m%d-%H%M%S") .. ".sav"
-    local dst = io.open(name, "wb")
-    if dst then dst:write(data); dst:close(); log("save backed up to " .. name) end
-end
+-- Insurance before any online session (backups.lua keeps the newest 20, restorable from the
+-- main-menu panel).
+local backups = require("backups")
+local function backupSave(mode) backups.make(mode, log) end
 
 -- via: "steam" (default: two PCs over Steam P2P through the helper process above),
 --      "bridge" (two PCs, link files piped over TCP by tools/dist/vbmp-bridge.ps1; VBMP.ini
 --      transport=bridge), "localfile" (two game processes on this PC, by instance slot) or
 --      "steamlua" (SteamCore from Lua: does not work, see transport.lua).
 --      steam and bridge share the link files: host writes A->B, client B->A.
-local function startSession(mode, hostId, via)
+-- steamHost: SteamID64 of the friend to join (main-menu list); nil = VBMP.ini host= or search.
+local function startSession(mode, hostId, via, steamHost)
     stopSession()
     if mode ~= "loopback" then pcall(backupSave, mode) end
     -- Before anything can save: a client must never write its real save (saveguard.lua).
@@ -271,7 +314,7 @@ local function startSession(mode, hostId, via)
     if ok and via == "steam" then
         local cfgHost = readIni().host
         ok, err = startSteamHelper(mode, (slot == "B") and (SAVED .. "VBMP_B\\") or SAVED,
-            cfgHost and math.tointeger(tonumber(cfgHost)) or nil)
+            steamHost or (cfgHost and math.tointeger(tonumber(cfgHost))) or nil)
     end
     if not ok then
         log("transport init failed: " .. tostring(err))
@@ -314,6 +357,78 @@ local function command(cmd)
 end
 
 ---------------------------------------------------------------------------------------------
+-- main-menu panel (menu.lua)
+
+local saveguardLib = require("saveguard")
+local CONTINUE_FN = "BndEvt__WBP_PlayMenu_BTN_Continue_K2Node_ComponentBoundEvent_4_CommonButtonBaseClicked__DelegateSignature"
+local pendingHostUntil = nil      -- [继续并开房]: host as soon as the level is up
+
+-- Same pick as worldsync.lua: the menu in the viewport if any, else any live instance (the play
+-- menu sits inside a CommonUI stack, where IsInViewport was false - self-test 2026-11-05).
+local function pressContinue()
+    local menu = nil
+    for _, w in ipairs(FindAllOf("WBP_PlayMenu_C") or {}) do
+        if valid(w) and not w:GetFullName():find("Default__", 1, true) then
+            local ok, shown = pcall(function() return w:IsInViewport() end)
+            if menu == nil or (ok and shown) then menu = w end
+        end
+    end
+    if not menu then return false end
+    menu[CONTINUE_FN](menu, menu.BTN_Continue)
+    return true
+end
+
+local menuApi
+menuApi = {
+    log = log,
+    inMenu = saveguardLib.inMenu,
+    sessionLines = function()
+        if not session then return {} end
+        local out = {}
+        local ok, lines = pcall(session.describe)
+        if ok then for i = 1, math.min(#lines, 3) do table.insert(out, lines[i]) end end
+        if steamHelper then table.insert(out, "Steam：" .. tostring(steamHelper.detail)) end
+        return out
+    end,
+    leave = function() stopSession() end,
+    hostAfterContinue = function()
+        if pressContinue() then pendingHostUntil = os.time() + 180; log("menu: Continue pressed, hosting when loaded")
+        else error("找不到主菜单的继续按钮") end
+    end,
+    join = function(steamId)
+        local via = (readIni().transport == "bridge") and "bridge" or "steam"
+        startSession("client", nil, via, steamId)
+    end,
+    friends = friendsNow,
+    refreshFriends = refreshFriends,
+    backups = function() return backups.list() end,
+    restore = function(file)
+        local ok, err = backups.restore(file, log)
+        if ok then
+            local gi = FindFirstOf("GI_LimaGameInstance_C")
+            if valid(gi) then
+                gi.SlotName = "LimaSaveGame"
+                pcall(function() gi:LoadGameData(false) end)
+            end
+        end
+        return ok, err
+    end,
+    carryMessage = function() return carryMsg end,
+}
+require("menu").start(menuApi)
+
+-- Test commands (VBMP_cmd.txt) that take the same paths as the panel's buttons.
+local function menuCommand(cmd)
+    if cmd == "menuhost" then menuApi.hostAfterContinue(); return true end
+    if cmd == "restore1" then
+        local b = backups.list()[1]
+        if b then log("restore1: " .. tostring(menuApi.restore(b.file)) .. " " .. b.file) end
+        return true
+    end
+    return false
+end
+
+---------------------------------------------------------------------------------------------
 -- loops
 
 local statusTimer, cmdTimer, slotTimer = 0, 0, 2
@@ -348,7 +463,7 @@ local function readCommand()
             local cmd = (f:read("l") or ""):match("^%s*(%w+)")
             f:close()
             os.remove(path)
-            if cmd then command(cmd) end
+            if cmd and not menuCommand(cmd) then command(cmd) end
         end
     end
 end
@@ -363,6 +478,15 @@ local function netStep()
     if cmdTimer >= 0.25 then
         cmdTimer = 0
         readCommand()
+        if pendingHostUntil then
+            if os.time() > pendingHostUntil then
+                pendingHostUntil = nil
+                log("menu: gave up waiting for the level to host")
+            elseif not saveguardLib.inMenu() and valid(aggroLib.localPlayer()) then
+                pendingHostUntil = nil
+                command("host")
+            end
+        end
     end
 
     if session then

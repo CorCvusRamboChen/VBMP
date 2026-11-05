@@ -22,7 +22,7 @@
 #   -Role host / client -Token <t>   正常运行；Saved\VBMP_steam_session.txt 的内容不再是 "<Role> <t>"
 #                                    或者游戏进程退出时，自动退出
 param(
-    [ValidateSet('host', 'client', 'probe')][string]$Role = 'probe',
+    [ValidateSet('host', 'client', 'probe', 'list')][string]$Role = 'probe',
     [string]$Token = '',
     [string]$Dir = (Join-Path $env:LOCALAPPDATA 'VOIDBREAKER\Saved'),
     [string]$HostId = '',
@@ -269,6 +269,37 @@ public static class VbmpSteam
         return 0;
     }
 
+    // ---------------------------------------------------------------- list (main-menu panel)
+
+    // Writes Saved\VBMP_steam_hosts.txt: "host\t<id>\t<name>" for friends hosting VBMP, then
+    // "playing\t<id>\t<name>" for friends in VOID/BREAKER without VBMP; first line "ok" or "error\t<msg>".
+    public static int List(string d)
+    {
+        string path = Path.Combine(d, "VBMP_steam_hosts.txt");
+        string tmp = path + ".tmp";
+        var sb = new StringBuilder();
+        if (!Init()) { File.WriteAllText(path, "error\tSteam 初始化失败\n", new UTF8Encoding(false)); return 1; }
+        sb.Append("ok\n");
+        int n = SteamAPI_ISteamFriends_GetFriendCount(friends, FRIEND_IMMEDIATE);
+        var info = new byte[24];
+        var playing = new StringBuilder();
+        for (int i = 0; i < n; i++)
+        {
+            ulong f = SteamAPI_ISteamFriends_GetFriendByIndex(friends, i, FRIEND_IMMEDIATE);
+            string rp = S(SteamAPI_ISteamFriends_GetFriendRichPresence(friends, f, Z("vbmp")));
+            string name = Name(f).Replace("\t", " ").Replace("\n", " ");
+            if (rp == "host") sb.Append("host\t").Append(f).Append('\t').Append(name).Append('\n');
+            else if (SteamAPI_ISteamFriends_GetFriendGamePlayed(friends, f, info) && (BitConverter.ToUInt64(info, 0) & 0xFFFFFF) == APPID)
+                playing.Append("playing\t").Append(f).Append('\t').Append(name).Append('\n');
+        }
+        sb.Append(playing.ToString());
+        File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(false));
+        if (File.Exists(path)) File.Delete(path);
+        File.Move(tmp, path);
+        SteamAPI_Shutdown();
+        return 0;
+    }
+
     // ---------------------------------------------------------------- host / client
 
     static ulong FindHost(string fixedHost)
@@ -450,4 +481,5 @@ Add-Type -TypeDefinition $code -Language CSharp
 [VbmpSteam]::Load($Dll)
 try { [Console]::Title = "VBMP Steam 联机 - $Role（不要关）" } catch { }
 if ($Role -eq 'probe') { exit [VbmpSteam]::Probe($Dir) }
+if ($Role -eq 'list') { exit [VbmpSteam]::List($Dir) }
 exit [VbmpSteam]::Run($Role, $Token, $Dir, $HostId)

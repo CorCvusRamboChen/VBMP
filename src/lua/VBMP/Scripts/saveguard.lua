@@ -15,7 +15,37 @@
 --   * Loads use the same slot variable: before switching we copy the real save to the client
 --     slot, so the client keeps playing with its own progress.
 
+-- Carrying gains back (coop-rules.md, user decision 2026-11-05: only out-of-run progression):
+--   * clientStarted writes Saved\SaveGames\VBMP_client_pending.txt; clientStopped saves the
+--     game into the client slot one last time.
+--   * at the main menu afterwards (or at the next main menu after a crash/quit) the META
+--     properties below are spliced from VBMP_client.sav into the real save (backed up first,
+--     backups.lua) and the real save is reloaded. Everything else - the player's own run, level,
+--     weapons, mods, backpack, VoidCoins - stays as it was before joining.
+--   * META = out-of-run names in BP_SaveGame_Lima_C (CXX dump; classification as in
+--     research/vbtools-01-difficulty-mods.md): Voidium, perma upgrades UPG_*, the six stats and
+--     their *Ranks, unlock lists, research, skins, chaos missions/fragments, iteration records,
+--     collected logs / viewed emails and the tutorial "HasShown*" flags. Deliberately NOT taken:
+--     story abilities (UnlockedDash/Grapple/Throw/WallRun?), HasHackModule*, Decryptors,
+--     IntegrationKeys, FoundWorldSchematics, InventorySchematics (tied to the host's world/run).
+
+local gvas = require("gvas")
+local backups = require("backups")
+
 local M = {}
+
+local META_EXACT = {}
+for n in ([[Voidium Vitality Ergonomics Capacity Endurance Cognition Exponent CurrentPermaTierMaxPurchase
+FullyUnlockedMods PurchasableMods UnlockedWeapons UnlockedBodyMods UnlockedWeaponMods UnlockedWeaponMasterMods
+UnlockedPermaUpgrades UnlockedSchematics ResearchedSchematics ResearchData UnlockedSkins UnlockedChasis
+ChaosFragments ChaosMissionAchieved_Act1 ChaosMissionAchieved_Act2 ChaosMissionAct1 ChaosMissionAct2
+CollectedLogs ViewedEmails MaxIterationReachedOnNormal MaxIterationReachedOnHard MaxIterationReachedOnInsanity]]):gmatch("%S+") do
+    META_EXACT[n] = true
+end
+function M.isMeta(name)
+    return META_EXACT[name] == true or name:find("^UPG_") ~= nil or name:find("^HasShown") ~= nil
+        or name:find("Ranks?$") ~= nil
+end
 
 local SAVES = (os.getenv("LOCALAPPDATA") or ".") .. "\\VOIDBREAKER\\Saved\\SaveGames\\"
 local REAL_SLOT = "LimaSaveGame"
@@ -42,6 +72,8 @@ function M.inMenu()
     local n = M.levelName()
     return n ~= nil and n:find("MainMenu", 1, true) ~= nil
 end
+
+local PENDING = SAVES .. "VBMP_client_pending.txt"
 
 local function copyFile(from, to)
     local src = io.open(from, "rb")
@@ -102,9 +134,59 @@ function M.new(log)
         log("saveguard: " .. n .. "/" .. #HOOKS .. " hooks")
     end
 
+    -- Names of META properties whose bytes differ between two saves (for the toast/log).
+    local function changedMeta(a, b)
+        local pa, pb = gvas.parse(a), gvas.parse(b)
+        if not pa or not pb then return {} end
+        local function blobs(bytes, parsed)
+            local t = {}
+            for _, pr in ipairs(parsed.props) do
+                if M.isMeta(pr.name) then t[pr.name] = bytes:sub(pr.from, pr.to) end
+            end
+            return t
+        end
+        local ba, bb = blobs(a, pa), blobs(b, pb)
+        local out = {}
+        for n, v in pairs(bb) do if ba[n] ~= v then table.insert(out, n) end end
+        for n in pairs(ba) do if bb[n] == nil then table.insert(out, n) end end
+        table.sort(out)
+        return out
+    end
+
+    -- At the main menu after co-op: bring out-of-run gains from the client slot into the real save.
+    function G.carryBack()
+        local client = backups.readFile(SAVES .. CLIENT_SLOT .. ".sav")
+        local real = backups.readFile(SAVES .. REAL_SLOT .. ".sav")
+        os.remove(PENDING)
+        if not client or not real then log("saveguard: carry-back skipped (a save is missing)"); return end
+        local changed = changedMeta(real, client)
+        if #changed == 0 then
+            log("saveguard: carry-back - no out-of-run changes")
+            if G.onCarried then G.onCarried(changed) end
+            return
+        end
+        local merged, kept, taken = gvas.splice(real, client, M.isMeta)
+        if not merged then log("saveguard: carry-back FAILED: " .. tostring(kept)); return end
+        backups.make("carryback", log)
+        if not backups.writeFile(SAVES .. REAL_SLOT .. ".sav", merged) then
+            log("saveguard: carry-back FAILED: cannot write the real save"); return
+        end
+        log(string.format("saveguard: carried back %d out-of-run properties (kept %d): %s",
+            taken, kept, table.concat(changed, ", ")))
+        -- the game holds a save object in memory; reload it from the merged file
+        local g = gi()
+        if valid(g) then
+            g.SlotName = REAL_SLOT
+            pcall(function() g:LoadGameData(false) end)
+        end
+        if G.onCarried then G.onCarried(changed) end
+    end
+
     -- A client session starts: protect the real save.
     function G.clientStarted()
         G.install()
+        local pf = io.open(PENDING, "w")
+        if pf then pf:write(os.date("%Y-%m-%d %H:%M:%S")); pf:close() end
         if not G.active then
             -- start from the slot this game is playing (normally LimaSaveGame)
             local from = REAL_SLOT
@@ -122,6 +204,16 @@ function M.new(log)
     -- the main menu (Continue then reloads the untouched real save from disk).
     function G.clientStopped()
         if G.active then
+            -- Last save into the client slot so the carry-back sees everything collected.
+            -- MasterSave, not SaveGameData: picked-up currency sits on the character and the
+            -- GI until the game's MasterSave copies it into LatestSaveGame (self-test
+            -- 2026-11-05: after PickedUpCurrency, SaveGameData wrote the old Voidium 336,
+            -- MasterSave wrote 344). ChaosFragments did not reach the file either way.
+            local g = gi()
+            if valid(g) and slotOf(g) == CLIENT_SLOT and not M.inMenu() then
+                local ok = pcall(function() g:MasterSave() end)
+                log("saveguard: final MasterSave to " .. CLIENT_SLOT .. " " .. tostring(ok))
+            end
             G.untilMenu = true
             log("saveguard: session over, still protecting until the main menu")
         end
@@ -129,12 +221,25 @@ function M.new(log)
 
     -- Own loop: keep the slot switched; switch back at the main menu (M.inMenu).
     function G.tick()
-        if not G.active then return end
+        if not G.active then
+            -- a co-op session ended without reaching the menu (game quit or crashed)
+            if not G.pendingChecked and M.inMenu() then
+                G.pendingChecked = true
+                local pf = io.open(PENDING, "r")
+                if pf then
+                    pf:close()
+                    log("saveguard: unfinished co-op session found, carrying gains back")
+                    G.carryBack()
+                end
+            end
+            return
+        end
         if G.untilMenu then
             if M.inMenu() then
                 G.active, G.untilMenu = false, false
                 setSlot(REAL_SLOT)
                 log("saveguard: OFF (main menu); the real save is in use again")
+                G.carryBack()
                 return
             end
         end
