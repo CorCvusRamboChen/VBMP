@@ -50,10 +50,14 @@ local function isGameplayBoss(obj)
     return isInstance(obj) and not obj:GetFullName():find(":MovieScene", 1, true)
 end
 
+-- 0 when the value is neither a TArray nor a table: after the 2026-11-05 game update a weapon
+-- slot array came back as a TrivialObject (unsupported property type) and `#arr` threw,
+-- which disabled the whole inventory panel.
 local function len(arr)
     local ok, n = pcall(function() return arr:GetArrayNum() end)
-    if ok then return n end
-    return #arr
+    if ok and type(n) == "number" then return n end
+    local ok2, n2 = pcall(function() return #arr end)
+    return (ok2 and type(n2) == "number") and n2 or 0
 end
 
 local function try(label, fn)

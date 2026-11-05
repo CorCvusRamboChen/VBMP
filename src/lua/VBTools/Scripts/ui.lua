@@ -32,6 +32,36 @@ local counter = 0
 local classes = {}
 local font = nil
 
+-- Panel size, remembered in Saved\VBTools_panel.txt: it can cover part of the backpack, so the
+-- player can shrink it ([－]/[＋], render scale around its top centre) or fold it to its title.
+local PREFS = (os.getenv("LOCALAPPDATA") or ".") .. "\\VOIDBREAKER\\Saved\\VBTools_panel.txt"
+local prefs = { collapsed = false, scale = 1.0 }
+local SCALE_MIN, SCALE_MAX, SCALE_STEP = 0.5, 1.3, 0.1
+
+local function loadPrefs()
+    local f = io.open(PREFS, "r")
+    if not f then return end
+    for line in f:lines() do
+        local k, v = line:match("^(%w+)=(.*)$")
+        if k == "collapsed" then prefs.collapsed = (v == "1")
+        elseif k == "scale" then prefs.scale = math.max(SCALE_MIN, math.min(SCALE_MAX, tonumber(v) or 1.0)) end
+    end
+    f:close()
+end
+
+local function savePrefs()
+    local f = io.open(PREFS, "w")
+    if not f then return end
+    f:write("collapsed=", prefs.collapsed and "1" or "0", "\n", string.format("scale=%.1f\n", prefs.scale))
+    f:close()
+end
+
+local function applyScale()
+    if not panel then return end
+    pcall(function() panel:SetRenderTransformPivot({ X = 0.5, Y = 0 }) end)
+    pcall(function() panel:SetRenderScale({ X = prefs.scale, Y = prefs.scale }) end)
+end
+
 local function cls(name)
     if not classes[name] then classes[name] = StaticFindObject("/Script/UMG." .. name) end
     return classes[name]
@@ -88,10 +118,10 @@ local function addLine(str, size)
     pad(s, 0, 4, 0, 2)
 end
 
-local function button(label, onClick)
+local function button(label, onClick, color)
     local b = new("Button")
     b:SetContent(text(label, 14))
-    pcall(function() b:SetBackgroundColor({ R = 0.25, G = 0.55, B = 1.0, A = 1.0 }) end)
+    pcall(function() b:SetBackgroundColor(color or { R = 0.25, G = 0.55, B = 1.0, A = 1.0 }) end)
     table.insert(buttons, { widget = b, onClick = onClick, wasPressed = false })
     return b
 end
@@ -163,8 +193,11 @@ end
 
 local function computeState()
     local char = api.player()
-    local triples = char and api.findTriples(char) or {}
-    local bosses = api.findBosses()
+    -- Each part is guarded: one failing reader must not take the whole panel down.
+    local okT, triples = pcall(function() return char and api.findTriples(char) or {} end)
+    if not okT then triples = {} end
+    local okB, bosses = pcall(api.findBosses)
+    if not okB then bosses = {} end
     local parts = {}
     -- Counters and ping change every second; rebuilding that often would eat button clicks
     -- (a click is a press and a release on the same widget), so they stay out of the signature.
@@ -180,8 +213,24 @@ end
 local function rebuild(char, triples, bosses)
     body:ClearChildren()
     buttons = {}
+    applyScale()
 
-    addLine("VBTools", 20)
+    local small = { R = 0.3, G = 0.3, B = 0.38, A = 1.0 }
+    local function setScale(d)
+        prefs.scale = math.max(SCALE_MIN, math.min(SCALE_MAX, math.floor((prefs.scale + d) * 10 + 0.5) / 10))
+        savePrefs()
+        applyScale()
+    end
+    addRow({
+        text("VBTools", 20),
+        button("－", function() setScale(-SCALE_STEP) end, small),
+        button("＋", function() setScale(SCALE_STEP) end, small),
+        button(prefs.collapsed and "展开" or "收起", function()
+            prefs.collapsed = not prefs.collapsed
+            savePrefs()
+        end, small),
+    })
+    if prefs.collapsed then return end
 
     local mp = mpStatus()
     if mp then
@@ -293,6 +342,7 @@ end
 
 function M.start(a)
     api = a
+    loadPrefs()
     -- Game-thread loop (LoopAsync raced with game-thread hooks in the same Lua state).
     LoopInGameThreadWithDelay(POLL_MS, function()
         local ok, err = pcall(tick)
