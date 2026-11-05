@@ -48,6 +48,8 @@ M.T = {
     INTERACT = 25,      -- "<s1fffB"    someone used a chest/switch/lever/obelisk: exact class name,
                         --              its location, 1 = hold interaction (interact.lua)
     PLAYER_HIT = 26,    -- "<f"         host -> one client: damage an enemy dealt to your stand-in (melee)
+    STORY = 27,         -- "<s1fffB"    a cutscene/dialogue container ran Switch/Activate: exact class name,
+                        --              its location, code 1-4 (storysync.lua)
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -80,6 +82,7 @@ local BODY = {
     [M.T.WIPE] = "",
     [M.T.INTERACT] = "<s1fffB",
     [M.T.PLAYER_HIT] = "<f",
+    [M.T.STORY] = "<s1fffB",
 }
 
 -- s1 strings hold at most 255 bytes.
@@ -98,7 +101,7 @@ function M.encode(kind, sender, ...)
     elseif kind == M.T.DST_BREAK then args[1] = clip(args[1], 255)
     elseif kind == M.T.DST_HIT then args[1] = clip(args[1], 255); args[6] = clip(args[6], 255)
     elseif kind == M.T.RADIAL then args[12] = clip(args[12], 255)
-    elseif kind == M.T.INTERACT then args[1] = clip(args[1], 255) end
+    elseif kind == M.T.INTERACT or kind == M.T.STORY then args[1] = clip(args[1], 255) end
     local body = fmt ~= "" and string.pack(fmt, table.unpack(args, 1, select("#", ...))) or ""
     return string.pack(HDR, "VB", M.VERSION, kind, sender) .. body
 end

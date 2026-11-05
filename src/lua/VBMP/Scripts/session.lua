@@ -18,7 +18,7 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 2                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26)
+M.MOD_BUILD = 3                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
@@ -68,6 +68,8 @@ function M.new(opts)
     local timestop = opts.timestop
     -- Chests, switches, levers, obelisks (interact.lua).
     local interact = opts.interact
+    -- Cutscenes and dialogue for everyone (storysync.lua).
+    local storysync = opts.storysync
     local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
@@ -183,6 +185,7 @@ function M.new(opts)
             if worldsync then worldsync.setRole("host") end
             if damagesync then damagesync.setRole("host") end
             if interact then interact.setRole("host") end
+            if storysync then storysync.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -205,6 +208,7 @@ function M.new(opts)
             if worldsync then worldsync.setRole("client") end
             if damagesync then damagesync.setRole("client") end
             if interact then interact.setRole("client") end
+            if storysync then storysync.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
@@ -228,6 +232,7 @@ function M.new(opts)
         if downed then pcall(downed.clear) end
         if timestop then pcall(timestop.clear) end
         if interact then pcall(interact.clear) end
+        if storysync then pcall(storysync.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -382,6 +387,11 @@ function M.new(opts)
             if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
                 interact.onRemote(a, b, c, d, e, sender)
             end
+        elseif kind == T.STORY then
+            if not storysync then return end
+            if (S.mode == "host" and knownPeer(sender)) or (S.mode == "client" and sender == S.hostId) then
+                storysync.onRemote(a, b, c, d, e, sender)
+            end
         elseif kind == T.WIPE then
             if downed and S.mode == "client" and sender == S.hostId then downed.onWipe() end
         elseif kind == T.TIMESTOP then
@@ -516,6 +526,16 @@ function M.new(opts)
                 end
             end)
             if not ok then log("interact tick failed: " .. tostring(err)) end
+        end
+        if storysync and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
+            local ok, err = pcall(storysync.tick, dt, function(cls, x, y, z, code, except)
+                if S.mode == "host" then
+                    for _, id in ipairs(targets) do if id ~= except then send(id, T.STORY, true, cls, x, y, z, code) end end
+                else
+                    send(S.hostId, T.STORY, true, cls, x, y, z, code)
+                end
+            end)
+            if not ok then log("story tick failed: " .. tostring(err)) end
         end
         if timestop and (S.mode == "host" or (S.mode == "client" and S.hostId)) then
             local ok, err = pcall(timestop.tick, function(d, except)
