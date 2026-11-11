@@ -18,7 +18,7 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 5                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30)
+M.MOD_BUILD = 6                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30; 6: 0.9.0, PLAYER_GEAR 31, PLAYER_FIRE 32)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
@@ -78,6 +78,8 @@ function M.new(opts)
     local traversal = opts.traversal
     -- Strongholds / arenas: start on the host, complete everywhere (mission.lua).
     local mission = opts.mission
+    -- Teammates' arms, gun and bullets (avatars.lua).
+    local avatars = opts.avatars
     local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
@@ -152,6 +154,7 @@ function M.new(opts)
         S.peers[id] = nil
         dragItems[id] = nil
         puppets.remove(id)
+        if avatars then pcall(avatars.remove, id) end
         H("removeTeammate", id)
         -- The host is gone (said bye / timed out): main.lua ends the client session, so the save
         -- guard switches back at the main menu and carries the out-of-run gains home.
@@ -200,6 +203,7 @@ function M.new(opts)
             if regionsync then regionsync.setRole("host") end
             if traversal then traversal.setRole("host") end
             if mission then mission.setRole("host") end
+            if avatars then avatars.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -226,10 +230,20 @@ function M.new(opts)
             if regionsync then regionsync.setRole("client") end
             if traversal then traversal.setRole("client") end
             if mission then mission.setRole("client") end
+            if avatars then avatars.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
             log("loopback: your own state comes back as a remote player 2 s later")
+        end
+    end
+
+    -- To everyone else in the session: host -> every client, client -> host (which relays).
+    function S.broadcast(kindName, reliable, ...)
+        if S.mode == "host" then
+            for id in pairs(S.peers) do send(id, T[kindName], reliable, ...) end
+        elseif S.mode == "client" and S.hostId then
+            send(S.hostId, T[kindName], reliable, ...)
         end
     end
 
@@ -253,6 +267,7 @@ function M.new(opts)
         if regionsync then pcall(regionsync.clear) end
         if traversal then pcall(traversal.clear) end
         if mission then pcall(mission.clear) end
+        if avatars then pcall(avatars.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -361,6 +376,13 @@ function M.new(opts)
             puppets.push(sender, S.now, b, c, d, e, f)
             if S.mode == "host" then
                 for id in pairs(S.peers) do if id ~= sender then sendRaw(id, bytes, false) end end
+            end
+        elseif kind == T.PLAYER_GEAR or kind == T.PLAYER_FIRE then
+            if not avatars then return end
+            if S.mode == "host" and not S.peers[sender] then return end
+            if kind == T.PLAYER_GEAR then avatars.onGear(sender, a) else avatars.onFire(sender, a, b, c, d, e) end
+            if S.mode == "host" then
+                for id in pairs(S.peers) do if id ~= sender then sendRaw(id, bytes, kind == T.PLAYER_GEAR) end end
             end
         elseif kind == T.LEVEL then
             local p = S.peers[sender] or (S.mode == "client" and addPeer(sender, nil)) or nil
@@ -728,6 +750,11 @@ function M.new(opts)
             local ds = destruction.stats
             table.insert(lines, string.format("破坏：发 %d　收 %d　应用 %d　已破 %d　转发 %d　找不到 %d　等待 %d",
                 ds.sent, ds.received, ds.applied, ds.already, ds.relayed, ds.missing, #destruction.inbox))
+        end
+        if avatars and avatars.role then
+            local vs = avatars.stats
+            table.insert(lines, string.format("队友手枪：%d　开火钩 %d　发弹 %d　显示 %d　装备 %d",
+                vs.avatars, vs.fireHooks or 0, vs.shotsSent, vs.shotsShown, vs.gearSent))
         end
         local st = tr.stats
         if st then table.insert(lines, string.format("包：发 %d　收 %d　失败 %d", st.sent, st.recv, st.sendFail)) end

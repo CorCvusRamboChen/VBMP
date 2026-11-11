@@ -36,7 +36,7 @@
 
 ## UE4SS / 游戏的坑（2026-11-04 自测实测）
 
-- **不要用 `LoopAsync` / `ExecuteWithDelay`**：它们在后台线程里执行 Lua，与此同时 hook 在游戏线程里执行同一个 Lua 状态，数据竞争会把值弄乱（数字变成字符串或函数、参数丢失）并导致崩溃。改用游戏线程版本 `LoopInGameThreadWithDelay(ms, fn)`（用 `CancelDelayedAction(handle)` 停止）和 `ExecuteInGameThreadWithDelay(ms, fn)`。热键回调里只做 `ExecuteInGameThread(...)`
+- **不要用 `LoopAsync` / `ExecuteWithDelay`**：它们在后台线程里执行 Lua，与此同时 hook 在游戏线程里执行同一个 Lua 状态，数据竞争会把值弄乱（数字变成字符串或函数、参数丢失）并导致崩溃。改用游戏线程版本 `LoopInGameThreadWithDelay(ms, fn)`（回调返回 true **不会**停止，要 `CancelDelayedAction(自己的句柄)`；句柄是同一 Lua 状态里共用的小整数，不要按范围取消，2026-11-12 这样把 VBDev 自己的循环也停了）和 `ExecuteInGameThreadWithDelay(ms, fn)`。热键回调里只做 `ExecuteInGameThread(...)`
 - **不要用 `ForEachUObject`**：全对象遍历两次让游戏空指针崩溃。只按类名用 `FindAllOf`，或者经已知引用去找
 - **不要盲读对象的全部属性**（`ForEachProperty` + `obj[name]`）：本版 UE4SS 不支持某些属性类型（日志：`FObjectPtrProperty`，读出来是 `TrivialObject`），读到就崩
 - **不要在蓝图函数 hook 回调（如 `ReceiveTick`）里加载资源、生成 Actor、加组件**：会让游戏线程死锁。放到普通的 `ExecuteInGameThread` 任务里做
@@ -63,6 +63,7 @@
 - 子类自己声明了同名函数（重写）时，挂在父类上的 hook 不会被调用，要在每个声明它的类上分别 hook（2026-11-05：`BP_Mission_WaveSpawner` 的 `CALL_PlayerOverlappedStart`）
 - 队友的替身是 `CH_LimaCharacter_C`，会触发房主世界里所有"玩家走进来"的东西；现在替身关掉了重叠事件（`aggro.lua`）
 - **游戏更新后第一次启动要编译着色器**，主菜单可能十几分钟才出来（2026-11-05 build 26439385：约 12 分钟），VBDev 在这期间不响应
+- **队友化身**（2026-11-12，`research/phase4-08-avatars.md`）：每个 `CH_LimaCharacter_C` 都会建自己的可见 HUD（`PlayerIcons`、`MissionHUD`），盖在本地 HUD 上，生成的化身 / 替身要折叠它们。武器子 Actor 的 `GetOwner()` 为空，判断"是不是我的枪"要和 `CurrentlyEquipedWeapon` 比地址。注入开火用 `IA_Shoot`（`IA_Fire` 不开枪），hook 每颗子弹用 `BP_Weapon_Base_C:FireProjectile`
 - **自测**：`tools/selftest-start.ps1` 启动游戏并点"继续"（从不点"新游戏"），`tools/dev.ps1` 在游戏里执行 Lua 和截图（需要启用 VBDev）。测试前先存档槽，测完恢复。**不要从 ssh 直接运行 `steam.exe`**，游戏要通过 `launch_game.ps1`（一次性计划任务）在用户桌面里启动
 
 ## 目录

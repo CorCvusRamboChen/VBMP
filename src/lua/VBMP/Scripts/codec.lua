@@ -54,6 +54,8 @@ M.T = {
                         --              location, the player's location (regionsync.lua)
     TRAV = 29,          -- "<fffs2"     host -> client: the level a traversal area streamed in (area
                         --              location, package path) (traversal.lua)
+    PLAYER_GEAR = 31,   -- "<s2"        the weapon a player holds: its UPDA_WeaponBase_C path (avatars.lua)
+    PLAYER_FIRE = 32,   -- "<fffff"     a player fired one projectile: camera x, y, z, yaw, pitch (avatars.lua)
     MISSION = 30,       -- "<s1fffB"    stronghold / arena: class, location, 1 started (client -> host),
                         --              2 completed (host -> clients) (mission.lua)
 }
@@ -92,6 +94,8 @@ local BODY = {
     [M.T.REGION] = "<s1ffffff",
     [M.T.TRAV] = "<fffs2",
     [M.T.MISSION] = "<s1fffB",
+    [M.T.PLAYER_GEAR] = "<s2",
+    [M.T.PLAYER_FIRE] = "<fffff",
 }
 
 -- s1 strings hold at most 255 bytes.

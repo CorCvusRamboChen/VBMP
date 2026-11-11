@@ -20,7 +20,7 @@ An unofficial two-player co-op mod for VOID/BREAKER, built on UE4SS Lua. Not aff
 
 ## 现在同步了什么
 
-敌人（房主计算，分仇恨）、子弹和伤害、场景破坏、宝箱 / 开关 / 拉杆、剧情和对话、区域推进、据点和竞技场、倒地和复活、时停、敌人掉落（每人一份）、区域之间的地形。完整的问题清单和状态见 [docs/coop-issues.md](docs/coop-issues.md)、[docs/status.md](docs/status.md)。
+队友的手、枪和开火的子弹，敌人（房主计算，分仇恨）、子弹和伤害、场景破坏、宝箱 / 开关 / 拉杆、剧情和对话、区域推进、据点和竞技场、倒地和复活、时停、敌人掉落（每人一份）、区域之间的地形。完整的问题清单和状态见 [docs/coop-issues.md](docs/coop-issues.md)、[docs/status.md](docs/status.md)。
 
 ## 开发
 

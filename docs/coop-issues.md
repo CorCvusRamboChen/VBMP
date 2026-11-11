@@ -33,6 +33,8 @@
 
 ## 已解决
 
+- 看不到队友的手、枪和子弹 → 0.9.0 `avatars.lua`（`research/phase4-08-avatars.md`）
+- 房主的仇恨替身（以及客户端的化身）各自带一套 HUD 盖在自己的 HUD 上，拿不同的枪时本地 HUD 显示错 → 0.9.0 折叠化身的 `PlayerIcons`、`MissionHUD`
 - 剧情 / 对话只有触发的人看到 → 0.6.0 `storysync.lua`
 - 宝箱、开关、拉杆、方尖碑只在使用的人那边生效 → 0.3.0 `interact.lua`
 - 敌人只追房主、只打房主 → 3.4b `aggro.lua`

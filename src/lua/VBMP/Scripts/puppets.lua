@@ -158,7 +158,8 @@ function M.new(log)
             local a, b = s[i - 1], s[i]
             if a.t <= rt then
                 local t = (b.t == a.t) and 1 or (rt - a.t) / (b.t - a.t)
-                return { X = lerp(a.X, b.X, t), Y = lerp(a.Y, b.Y, t), Z = lerp(a.Z, b.Z, t), Yaw = lerpYaw(a.Yaw, b.Yaw, t) }
+                return { X = lerp(a.X, b.X, t), Y = lerp(a.Y, b.Y, t), Z = lerp(a.Z, b.Z, t), Yaw = lerpYaw(a.Yaw, b.Yaw, t),
+                         Pitch = lerp(a.Pitch or 0, b.Pitch or 0, t) }
             end
         end
         return s[1]
@@ -183,12 +184,23 @@ function M.new(log)
         for _, p in pairs(P.peers) do
             local s = sampleAt(p.samples, ctx.now - INTERP_DELAY)
             local sameLevel = (p.level == nil or ctx.level == nil or p.level == ctx.level)
+            p.cur = (s and sameLevel) and s or nil      -- avatars.lua follows this pose
             if s and sameLevel then
                 if not valid(p.actor) then p.wantSpawn = { X = s.X, Y = s.Y, Z = s.Z } end
                 if valid(p.actor) then
                     local z, yaw = s.Z, s.Yaw
                     if p.kind == "mannequin" then z, yaw = z - ctx.halfHeight, yaw - 90 end
                     p.actor:SetActorHiddenInGame(false)
+                    -- the teammate's arms and gun stand in for the mannequin (avatars.lua); the
+                    -- puppet stays for its name tag and streaming source
+                    -- (real state, not a cached flag: the puppet actor is remade after a level load)
+                    local want = not p.avatarUp
+                    for _, f in ipairs({ "SkeletalMeshComponent", "StaticMeshComponent" }) do
+                        pcall(function()
+                            local c = p.actor[f]
+                            if c:IsVisible() ~= want then c:SetVisibility(want, false) end
+                        end)
+                    end
                     p.actor:K2_SetActorLocationAndRotation({ X = s.X, Y = s.Y, Z = z }, { Pitch = 0, Yaw = yaw, Roll = 0 }, false, {}, true)
                     if valid(p.tag) and ctx.cameraYaw then
                         p.tag:K2_SetWorldRotation({ Pitch = 0, Yaw = ctx.cameraYaw + 180, Roll = 0 }, false, {}, true)

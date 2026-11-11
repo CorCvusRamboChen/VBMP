@@ -157,6 +157,10 @@ local coopfixes = require("coopfixes").new(log)
 local regionsync = require("regionsync").new(log, hud, aggroLib.localPlayer)
 local traversal = require("traversal").new(log)
 local mission = require("mission").new(log)
+-- Teammates' arms, gun and bullets. On the host the aggro stand-in is the avatar and is moved
+-- every frame here instead of by aggro.lua.
+local avatars = require("avatars").new(log, { localPlayer = aggroLib.localPlayer, aggro = enemies.aggro })
+enemies.aggro.externallyMoved = true
 local session = nil
 local lastNow = nil
 
@@ -399,6 +403,7 @@ local function startSession(mode, hostId, via, steamHost)
         regionsync = (mode ~= "loopback") and regionsync or nil,
         traversal = (mode ~= "loopback") and traversal or nil,
         mission = (mode ~= "loopback") and mission or nil,
+        avatars = (mode ~= "loopback") and avatars or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
         -- Steam: finding the host's presence and NAT traversal take longer than a file link
@@ -567,6 +572,12 @@ local function netStep()
             return
         end
         if valid(player) then puppets.spawnPending({ now = now, world = player:GetWorld() }) end
+        if session.mode ~= "loopback" and avatars.role then
+            local ok, err = pcall(avatars.tick, dt, { world = valid(player) and player:GetWorld() or nil, puppets = puppets },
+                function(path) session.broadcast("PLAYER_GEAR", true, path) end,
+                function(x, y, z, yaw, pitch) session.broadcast("PLAYER_FIRE", false, x, y, z, yaw, pitch) end)
+            if not ok then log("avatars tick failed: " .. tostring(err)) end
+        end
         if enemies.role == "client" then
             local ok, err = pcall(enemies.clientTick, valid(player) and player:GetWorld() or nil)
             if not ok then log("enemies client tick failed: " .. tostring(err)) end
@@ -588,6 +599,7 @@ local function renderStep()
     local level = nil
     pcall(function() level = player:GetWorld():GetFName():ToString() end)
     puppets.tick({ now = now, level = level, halfHeight = halfHeight, cameraYaw = cameraYaw })
+    if avatars.role then avatars.frame(puppets) end
     if enemies.role == "client" then enemies.clientRender(now) end
     -- Data only (no widget creation) - safe inside the tick hook.
     for id, p in pairs(puppets.peers) do
@@ -681,6 +693,8 @@ local function selfTest()
         { T.REGION, "BP_Scenario_Boss_C", -429.5, -217671, 5890, -426, -217306, 5423 },
         { T.TRAV, -880, -203856, 5739, "/Game/ProjectLima/Levels/TransitionRegions/B05/LV_TRS_B05_01" },
         { T.MISSION, "BP_Stronghold_Frozen_C", 33063, -79837, 5219, 2 },
+        { T.PLAYER_GEAR, "/Game/ProjectLima/Blueprints/Data/Weapons/DA_Weapon_SMG.DA_Weapon_SMG" },
+        { T.PLAYER_FIRE, -900.5, -199280.25, 5900, 270.5, -3.25 },
         { T.PLAYER_HIT, 20 },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }

@@ -335,7 +335,10 @@ function M.new(log, E)
             end
             if valid(s.actor) then
                 A.chars[s.actor:GetAddress()] = true
-                s.actor:K2_SetActorLocation({ X = r.pos.X, Y = r.pos.Y, Z = r.pos.Z }, false, {}, true)
+                -- avatars.lua moves the stand-in every frame (it shows the teammate's arms and gun)
+                if not A.externallyMoved then
+                    s.actor:K2_SetActorLocation({ X = r.pos.X, Y = r.pos.Y, Z = r.pos.Z }, false, {}, true)
+                end
             end
         end
         for peer in pairs(A.stands) do

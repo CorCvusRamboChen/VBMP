@@ -224,14 +224,22 @@ local function pollButtons()
     end
 end
 
+-- The play menu and our panel are destroyed with the menu level; a kept reference then reads as
+-- a TrivialObject ("attempt to call a TrivialObject value (method 'SetVisibility')", logs
+-- 2026-11-05 and 2026-11-11), so calls are guarded and references dropped outside the menu.
 local function hide()
-    if valid(panel) then panel:SetVisibility(VIS_COLLAPSED) end
+    if not pcall(function() if valid(panel) then panel:SetVisibility(VIS_COLLAPSED) end end) then
+        panel = nil
+    end
 end
 
 local function tick()
     ticks = ticks + 1
     if not enabled then return end
-    if not api.inMenu() then hide(); return end
+    if not api.inMenu() then
+        if host or panel then hide(); host, panel, buttons = nil, nil, {} end
+        return
+    end
     if not valid(host) or ticks % 20 == 0 then
         local found = findMenu()
         if found and (not valid(host) or found:GetAddress() ~= host:GetAddress()) then
