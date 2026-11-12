@@ -88,10 +88,12 @@ public static class VbmpSteam
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_IsP2PPacketAvailable(IntPtr self, out uint size, int channel);
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_ReadP2PPacket(IntPtr self, byte[] dest, uint cap, out uint size, out ulong from, int channel);
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(IntPtr self, ulong id);
+    [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_GetP2PSessionState(IntPtr self, ulong id, byte[] state20);
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_AllowP2PPacketRelay(IntPtr self, [MarshalAs(UnmanagedType.I1)] bool allow);
 
     const int FRIEND_IMMEDIATE = 0x04, REL_FRIEND = 3, SEND_RELIABLE = 2, APPID = 2615540;   // the game (appmanifest)
     public static int P2PAppId = APPID;   // what the helper initialises Steam as (-AppId)
+    public static string Version = "";    // Mods/VBMP/version.txt; published as rich presence vbmpver (0.9.2+)
     const int CB_SESSION_REQUEST = 1202, CB_CONNECT_FAIL = 1203;
     const int MAX_PACKET = 60000;
 
@@ -185,6 +187,15 @@ public static class VbmpSteam
     }
 
     static void IgnoreRequest(ulong remote) { }
+
+    // P2PSessionState_t: uint8 active, connecting, error, usingRelay; int32 bytesQueued, packetsQueued;
+    // uint32 remoteIP; uint16 remotePort (20 bytes)
+    static string SessionState(ulong id)
+    {
+        var st = new byte[20];
+        if (!SteamAPI_ISteamNetworking_GetP2PSessionState(net, id, st)) return "没有会话";
+        return string.Format("活动 {0}，正在连接 {1}，错误 {2}，中继 {3}，排队 {4} 包", st[0], st[1], st[2], st[3], BitConverter.ToInt32(st, 8));
+    }
 
     // Returns the remote ids of P2P session requests seen this frame (accepted or not).
     static void Dispatch(Action<ulong> onRequest)
@@ -372,6 +383,9 @@ public static class VbmpSteam
         inPath = Path.Combine(dir, host ? "VBMP_link_B2A.bin" : "VBMP_link_A2B.bin");
         if (!Init()) return 1;
         SteamAPI_ISteamFriends_SetRichPresence(friends, Z("vbmp"), Z(host ? "host" : "client"));
+        if (Version != "") SteamAPI_ISteamFriends_SetRichPresence(friends, Z("vbmpver"), Z(Version));
+        string hostVer = "";
+        DateTime foundAt = DateTime.MinValue;
         WriteStatus(host ? "hosting" : "searching", host ? "等待好友加入" : "正在找开房的好友");
         Log(host ? "开房中：好友加入时会自动连上" : "正在好友里找开房的人……");
 
@@ -435,7 +449,9 @@ public static class VbmpSteam
                     SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(net, hostId);
                     peers[hostId] = Name(hostId);
                     outOffset = LastBoundary(outPath); pending.Clear();
-                    Log("找到房主：" + peers[hostId]);
+                    foundAt = DateTime.Now;
+                    hostVer = S(SteamAPI_ISteamFriends_GetFriendRichPresence(friends, hostId, Z("vbmpver")));
+                    Log("找到房主：" + peers[hostId] + "（房主的 VBMP " + (hostVer != "" ? hostVer : "是 0.9.1 或更早，没有版本信息") + "，我的 " + Version + "）");
                     WriteStatus("connecting", "找到房主 " + peers[hostId]);
                 }
                 else WriteStatus("searching", "没有找到开房的好友（房主要先开房；双方必须是 Steam 好友）");
@@ -532,12 +548,17 @@ public static class VbmpSteam
                 nextStatus = DateTime.Now.AddSeconds(2);
                 string state = peers.Count > 0 && lastSender != 0 ? "connected" : (host ? "hosting" : (hostId != 0 ? "connecting" : "searching"));
                 string detail = state == "connected" ? "已连上 " + string.Join("、", peers.Values) : (host ? "等待好友加入" : (hostId != 0 ? "正在连接房主 " + peers[hostId] : "没有找到开房的好友（房主要先开房；双方必须是 Steam 好友）"));
+                if (state == "connecting" && bytesIn == 0 && (DateTime.Now - foundAt).TotalSeconds > 20)
+                    detail = hostVer == ""
+                        ? "房主 " + peers[hostId] + " 没有回应：他的 VBMP 是旧版本。请他重启游戏两次更新到最新版，再重新开房"
+                        : "房主 " + peers[hostId] + " 没有回应：请他点 [离开联机] 再 [继续并开房]，然后你重新加入";
                 WriteStatus(state, detail);
             }
             if (DateTime.Now > nextReport)
             {
                 nextReport = DateTime.Now.AddSeconds(10);
-                Log(string.Format("发出 {0} 包 / {1} KB   收到 {2} 包 / {3} KB", framesOut, bytesOut / 1024, framesIn, bytesIn / 1024));
+                Log(string.Format("发出 {0} 包 / {1} KB   收到 {2} 包 / {3} KB", framesOut, bytesOut / 1024, framesIn, bytesIn / 1024)
+                    + (!host && hostId != 0 && bytesIn == 0 ? "   会话：" + SessionState(hostId) : ""));
             }
             if (idle) Thread.Sleep(2);
         }
@@ -563,6 +584,8 @@ public static class VbmpSteam
 Add-Type -TypeDefinition $code -Language CSharp
 [VbmpSteam]::Load($Dll)
 [VbmpSteam]::P2PAppId = $AppId
+$verFile = Join-Path (Split-Path $PSScriptRoot) 'version.txt'
+if (Test-Path $verFile) { [VbmpSteam]::Version = (Get-Content $verFile -Raw).Trim() }
 try { [Console]::Title = "VBMP Steam 联机 - $Role（不要关）" } catch { }
 if ($Role -eq 'probe') { exit [VbmpSteam]::Probe($Dir) }
 if ($Role -eq 'list') { exit [VbmpSteam]::List($Dir) }
