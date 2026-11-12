@@ -167,7 +167,34 @@ public static class VbmpSteam
     // leaving once, the friend could not rejoin until the host stopped hosting (2026-11-13: the
     // client sent 58 packets, got 0; the host had stopped knocking because its list was full).
     static readonly Dictionary<ulong, DateTime> heard = new Dictionary<ulong, DateTime>();
-    const double PEER_TIMEOUT = 10;
+    // 60 s, longer than the game's own 45 s: a client loading the host world can stall for
+    // seconds (2026-11-13: two loads back to back), and a leaving client says so with BYE.
+    const double PEER_TIMEOUT = 60;
+
+    // Watchdog: if the main loop stops turning (or the game is gone), leave. A stuck helper stays
+    // registered with Steam as app 480 and can swallow the friend's packets, so a second helper
+    // started later only knocks and never hears anything (suspected 2026-11-13).
+    static long lastLoopTicks = DateTime.Now.Ticks;
+    static void StartWatchdog()
+    {
+        var t = new Thread(delegate ()
+        {
+            while (true)
+            {
+                Thread.Sleep(2000);
+                double stalled = (DateTime.Now.Ticks - Interlocked.Read(ref lastLoopTicks)) / (double)TimeSpan.TicksPerSecond;
+                string why = stalled > 20 ? "主循环 " + (int)stalled + " 秒没有动" : (!GameRunning() ? "游戏已经不在了" : null);
+                if (why != null)
+                {
+                    Log("看门狗：" + why + "，退出");
+                    try { WriteStatus("stopped", "联机已结束"); } catch { }
+                    Environment.Exit(3);
+                }
+            }
+        });
+        t.IsBackground = true;
+        t.Start();
+    }
 
     // Host, every 2 s: accept and knock on every friend whose presence says vbmp=client. Sending
     // to a user opens the session from our side, so this does not depend on the
@@ -423,8 +450,10 @@ public static class VbmpSteam
         DateTime nextScan = DateTime.MinValue, nextCheck = DateTime.MinValue, nextReport = DateTime.Now.AddSeconds(10), nextStatus = DateTime.MinValue;
         ulong lastSender = 0;
 
+        StartWatchdog();
         while (true)
         {
+            Interlocked.Exchange(ref lastLoopTicks, DateTime.Now.Ticks);
             if (DateTime.Now > nextCheck)
             {
                 nextCheck = DateTime.Now.AddSeconds(1);
@@ -545,7 +574,10 @@ public static class VbmpSteam
                         if (rel != REL_FRIEND) { if (knocked.Add(from)) Log("忽略非好友 " + Name(from) + " 的包（好友关系 " + rel + "）"); continue; }
                         if (peers.Count >= 1) { Log("已经有一个队友了，忽略 " + Name(from)); continue; }
                         peers[from] = Name(from);
-                        outOffset = LastBoundary(outPath); pending.Clear();
+                        // outOffset follows the file even with nobody connected (whole frames are
+                        // dropped below), so only whole frames need dropping here; reading the
+                        // whole link file again is not needed
+                        { byte[] pa = pending.ToArray(); int pf; pending.RemoveRange(0, CompleteFrames(pa, pa.Length, out pf)); }
                         inLen = 0;
                         Log(peers[from] + " 连上了");
                         WriteStatus("connected", peers[from] + " 已连上");
@@ -613,6 +645,15 @@ Add-Type -TypeDefinition $code -Language CSharp
 $verFile = Join-Path (Split-Path $PSScriptRoot) 'version.txt'
 if (Test-Path $verFile) { [VbmpSteam]::Version = (Get-Content $verFile -Raw).Trim() }
 try { [Console]::Title = "VBMP Steam 联机 - $Role（不要关）" } catch { }
+# Only one session helper per PC: end leftovers of earlier sessions (a stuck one keeps the
+# Steam app 480 registration and can take the friend's packets; see StartWatchdog).
+if ($Role -eq 'host' -or $Role -eq 'client') {
+    try {
+        Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+            Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'vbmp-steam\.ps1' -and $_.CommandLine -match ('-Role ' + $Role + '\b') } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    } catch { }
+}
 if ($Role -eq 'probe') { exit [VbmpSteam]::Probe($Dir) }
 if ($Role -eq 'list') { exit [VbmpSteam]::List($Dir) }
 exit [VbmpSteam]::Run($Role, $Token, $Dir, $HostId)
