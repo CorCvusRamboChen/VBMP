@@ -63,6 +63,7 @@
 - 子类自己声明了同名函数（重写）时，挂在父类上的 hook 不会被调用，要在每个声明它的类上分别 hook（2026-11-05：`BP_Mission_WaveSpawner` 的 `CALL_PlayerOverlappedStart`）
 - 队友的替身是 `CH_LimaCharacter_C`，会触发房主世界里所有"玩家走进来"的东西；现在替身关掉了重叠事件（`aggro.lua`）
 - **游戏更新后第一次启动要编译着色器**，主菜单可能十几分钟才出来（2026-11-05 build 26439385：约 12 分钟），VBDev 在这期间不响应
+- **撤离任务**（2026-11-13，`research/phase4-09-extraction.md`）：`PlayerInZone` 每调用一次多一个上传计时器（不是幂等的）；任务失败时也会调用 `StrongholdCompleted`，`Failed?` 在之后才设上，所以判断成败要延后再看；客户端删掉撤离任务刚刷出的敌人会崩，要先 `StopSpawner`；用 `K2_SetActorLocation` 传送不一定触发区域进出的重叠事件，判断在不在区域里用距离；同一个世界里手动生成第二套撤离任务会关联不上，测试要重启
 - **队友化身**（2026-11-12，`research/phase4-08-avatars.md`）：每个 `CH_LimaCharacter_C` 都会建自己的可见 HUD（`PlayerIcons`、`MissionHUD`），盖在本地 HUD 上，生成的化身 / 替身要折叠它们。武器子 Actor 的 `GetOwner()` 为空，判断"是不是我的枪"要和 `CurrentlyEquipedWeapon` 比地址。注入开火用 `IA_Shoot`（`IA_Fire` 不开枪），hook 每颗子弹用 `BP_Weapon_Base_C:FireProjectile`
 - **自测**：`tools/selftest-start.ps1` 启动游戏并点"继续"（从不点"新游戏"），`tools/dev.ps1` 在游戏里执行 Lua 和截图（需要启用 VBDev）。测试前先存档槽，测完恢复。**不要从 ssh 直接运行 `steam.exe`**，游戏要通过 `launch_game.ps1`（一次性计划任务）在用户桌面里启动
 

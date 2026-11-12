@@ -156,7 +156,7 @@ local storysync = require("storysync").new(log)
 local coopfixes = require("coopfixes").new(log)
 local regionsync = require("regionsync").new(log, hud, aggroLib.localPlayer)
 local traversal = require("traversal").new(log)
-local mission = require("mission").new(log)
+local mission = require("mission").new(log, { localPlayer = aggroLib.localPlayer })
 -- Teammates' arms, gun and bullets. On the host the aggro stand-in is the avatar and is moved
 -- every frame here instead of by aggro.lua.
 local avatars = require("avatars").new(log, { localPlayer = aggroLib.localPlayer, aggro = enemies.aggro })

@@ -57,7 +57,9 @@ M.T = {
     PLAYER_GEAR = 31,   -- "<s2"        the weapon a player holds: its UPDA_WeaponBase_C path (avatars.lua)
     PLAYER_FIRE = 32,   -- "<fffff"     a player fired one projectile: camera x, y, z, yaw, pitch (avatars.lua)
     MISSION = 30,       -- "<s1fffB"    stronghold / arena: class, location, 1 started (client -> host),
-                        --              2 completed (host -> clients) (mission.lua)
+                        --              2 completed (host -> clients); extraction both ways: 3 cube in,
+                        --              4 / 5 player entered / left the zone; 6 failed (host -> clients)
+                        --              (mission.lua)
     LOG_REQ = 33,       -- "<B"         host <-> client after a join: send me your logs (peerlogs.lua)
     LOG_CHUNK = 34,     -- "<s1I4I4s2"  a piece of a log: tag (steam/game/update), total, offset, bytes
     BOSS_BAR = 35,      -- "<Bffffs1BH" host -> clients: a call on the boss health bar (bossbar.lua)

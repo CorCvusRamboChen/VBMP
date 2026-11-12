@@ -18,7 +18,7 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 8                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30; 6: 0.9.0, PLAYER_GEAR 31, PLAYER_FIRE 32; 7: 0.10.0, LOG_REQ 33, LOG_CHUNK 34, backpack copied on join; 8: 0.11.0, BOSS_BAR 35)
+M.MOD_BUILD = 9                 -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30; 6: 0.9.0, PLAYER_GEAR 31, PLAYER_FIRE 32; 7: 0.10.0, LOG_REQ 33, LOG_CHUNK 34, backpack copied on join; 8: 0.11.0, BOSS_BAR 35; 9: 0.12.0, MISSION codes 3-5 for extractions)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
