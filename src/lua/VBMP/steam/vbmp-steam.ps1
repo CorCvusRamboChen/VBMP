@@ -82,6 +82,7 @@ public static class VbmpSteam
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] static extern IntPtr SteamAPI_ISteamFriends_GetFriendRichPresence(IntPtr self, ulong id, byte[] key);
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamFriends_SetRichPresence(IntPtr self, byte[] key, byte[] value);
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] static extern void SteamAPI_ISteamFriends_ClearRichPresence(IntPtr self);
+    [DllImport(D, CallingConvention = CallingConvention.Cdecl)] static extern void SteamAPI_ISteamFriends_RequestFriendRichPresence(IntPtr self, ulong id);
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamFriends_GetFriendGamePlayed(IntPtr self, ulong id, byte[] info24);
 
     [DllImport(D, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] static extern bool SteamAPI_ISteamNetworking_SendP2PPacket(IntPtr self, ulong to, byte[] data, uint len, int sendType, int channel);
@@ -173,16 +174,41 @@ public static class VbmpSteam
     // P2PSessionRequest_t callback reaching this process (the game process runs SteamAPI for the
     // same app and user too; first real test 2026-11-06: the client sent 80+ packets, the host's
     // helper never reported anything).
+    // Steam only pushes rich presence between friends "in the same game". A joiner runs the game
+    // (2615540) and the helper (480), and the host's Steam may show them as playing the game, so
+    // the host's helper never saw vbmp=client and never knocked (2026-11-13: host 0.9.1 waiting,
+    // the client's session to the host stuck at "connecting", 4 packets queued, no error).
+    // So the host asks for every friend's presence every 10 s, and also knocks on friends that
+    // play VOIDBREAKER or app 480 when their presence cannot be read.
+    static DateTime nextPresenceAsk = DateTime.MinValue, nextBlindKnock = DateTime.MinValue;
+    static readonly HashSet<ulong> blindLogged = new HashSet<ulong>();
     static void KnockOnJoiners()
     {
         int n = SteamAPI_ISteamFriends_GetFriendCount(friends, FRIEND_IMMEDIATE);
+        bool ask = DateTime.Now > nextPresenceAsk;
+        if (ask) nextPresenceAsk = DateTime.Now.AddSeconds(10);
+        bool blind = DateTime.Now > nextBlindKnock;
+        if (blind) nextBlindKnock = DateTime.Now.AddSeconds(10);
+        var info = new byte[24];
         for (int i = 0; i < n; i++)
         {
             ulong f = SteamAPI_ISteamFriends_GetFriendByIndex(friends, i, FRIEND_IMMEDIATE);
-            if (S(SteamAPI_ISteamFriends_GetFriendRichPresence(friends, f, Z("vbmp"))) != "client") continue;
-            SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(net, f);
-            bool ok = SteamAPI_ISteamNetworking_SendP2PPacket(net, f, KNOCK, 1, SEND_RELIABLE, 0);
-            if (knocked.Add(f)) Log("主动连接想加入的好友 " + Name(f) + "（发送" + (ok ? "成功" : "失败") + "）");
+            if (ask) SteamAPI_ISteamFriends_RequestFriendRichPresence(friends, f);
+            string rp = S(SteamAPI_ISteamFriends_GetFriendRichPresence(friends, f, Z("vbmp")));
+            if (rp == "client")
+            {
+                SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(net, f);
+                bool ok = SteamAPI_ISteamNetworking_SendP2PPacket(net, f, KNOCK, 1, SEND_RELIABLE, 0);
+                if (knocked.Add(f)) Log("主动连接想加入的好友 " + Name(f) + "（发送" + (ok ? "成功" : "失败") + "）");
+            }
+            else if (rp == "" && blind && SteamAPI_ISteamFriends_GetFriendGamePlayed(friends, f, info))
+            {
+                ulong app = BitConverter.ToUInt64(info, 0) & 0xFFFFFF;
+                if (app != (ulong)APPID && app != 480) continue;
+                SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser(net, f);
+                bool ok = SteamAPI_ISteamNetworking_SendP2PPacket(net, f, KNOCK, 1, SEND_RELIABLE, 0);
+                if (blindLogged.Add(f)) Log("好友 " + Name(f) + " 在玩（app " + app + "），读不到他的 VBMP 状态，也主动连接（发送" + (ok ? "成功" : "失败") + "）");
+            }
         }
     }
 
