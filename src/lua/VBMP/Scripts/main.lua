@@ -161,6 +161,8 @@ local mission = require("mission").new(log)
 -- every frame here instead of by aggro.lua.
 local avatars = require("avatars").new(log, { localPlayer = aggroLib.localPlayer, aggro = enemies.aggro })
 enemies.aggro.externallyMoved = true
+-- Logs swapped with the other player after a join (peerlogs.lua).
+local peerlogs = require("peerlogs").new(log, SAVED)
 local session = nil
 local lastNow = nil
 
@@ -353,9 +355,11 @@ local function backupSave(mode) backups.make(mode, log) end
 -- steamHost: SteamID64 of the friend to join (main-menu list); nil = VBMP.ini host= or search.
 local function startSession(mode, hostId, via, steamHost)
     stopSession()
-    if mode ~= "loopback" then pcall(backupSave, mode) end
-    -- Before anything can save: a client must never write its real save (saveguard.lua).
-    if mode == "client" then saveguard.clientStarted() end
+    -- Backups and the client's save protection start only once the join really happened
+    -- (onConnected / onPeerJoined below; user request 2026-11-13: a failed join used to back up
+    -- and switch the save slot every time). The client is in the main menu or its own world
+    -- until WELCOME, and the host save that it loads follows WELCOME.
+    local backedUp = false
     local tr
     if mode == "loopback" then
         tr = transport.loopback(log, LOOPBACK_DELAY)
@@ -404,10 +408,21 @@ local function startSession(mode, hostId, via, steamHost)
         traversal = (mode ~= "loopback") and traversal or nil,
         mission = (mode ~= "loopback") and mission or nil,
         avatars = (mode ~= "loopback") and avatars or nil,
+        peerlogs = (mode ~= "loopback") and peerlogs or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
         -- Steam: finding the host's presence and NAT traversal take longer than a file link
         helloGiveUp = (via == "steam") and 90 or nil,
+        onConnected = function()
+            -- client: before anything can save, it must never write its real save (saveguard.lua)
+            if mode == "client" then
+                pcall(backupSave, mode)
+                saveguard.clientStarted()
+            end
+        end,
+        onPeerJoined = function()
+            if mode == "host" and not backedUp then backedUp = true; pcall(backupSave, mode) end
+        end,
     })
     session.start(monoTime() or 0)
     if mode ~= "loopback" then pcall(coopfixes.setActive, true) end
@@ -488,6 +503,27 @@ menuApi = {
     end,
     carryMessage = function() return carryMsg end,
     version = function() return installedVersion(), updateInfo end,
+    -- [打包日志]: steam/vbmp-logs.ps1 zips the logs to the desktop (Saved\VBMP_logs_export.txt)
+    exportLogs = function()
+        local script = helperScript()
+        if not script then error("找不到 steam\\vbmp-steam.ps1（重新安装 VBMP）") end
+        os.remove(SAVED .. "VBMP_logs_export.txt")
+        os.execute(string.format(
+            'start "VBMP logs" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -Dir "%s"',
+            (script:gsub("vbmp%-steam%.ps1$", "vbmp-logs.ps1")), (SAVED:gsub("\\$", ""))))
+        log("logs export started")
+    end,
+    exportResult = function()
+        local f = io.open(SAVED .. "VBMP_logs_export.txt", "r")
+        if not f then return nil end
+        local t = f:read("a") or ""
+        f:close()
+        local ok = t:match("ok=([^\n]+)")
+        if ok then return true, ok end
+        local err = t:match("error=([^\n]*)")
+        if err then return false, err end
+        return nil
+    end,
 }
 require("menu").start(menuApi)
 
@@ -695,6 +731,8 @@ local function selfTest()
         { T.MISSION, "BP_Stronghold_Frozen_C", 33063, -79837, 5219, 2 },
         { T.PLAYER_GEAR, "/Game/ProjectLima/Blueprints/Data/Weapons/DA_Weapon_SMG.DA_Weapon_SMG" },
         { T.PLAYER_FIRE, -900.5, -199280.25, 5900, 270.5, -3.25 },
+        { T.LOG_REQ, 1 },
+        { T.LOG_CHUNK, "steam", 70000, 30000, "12:00:01  Steam 已初始化\n" },
         { T.PLAYER_HIT, 20 },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },
     }

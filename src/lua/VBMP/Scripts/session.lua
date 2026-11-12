@@ -18,7 +18,7 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 6                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30; 6: 0.9.0, PLAYER_GEAR 31, PLAYER_FIRE 32)
+M.MOD_BUILD = 7                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30; 6: 0.9.0, PLAYER_GEAR 31, PLAYER_FIRE 32; 7: 0.10.0, LOG_REQ 33, LOG_CHUNK 34, backpack copied on join)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
@@ -80,6 +80,7 @@ function M.new(opts)
     local mission = opts.mission
     -- Teammates' arms, gun and bullets (avatars.lua).
     local avatars = opts.avatars
+    local peerlogs = opts.peerlogs
     local lastDownFlag = 0
 
     -- HUD (hud.lua) is optional; every call is guarded so a UI error never breaks networking.
@@ -268,6 +269,7 @@ function M.new(opts)
         if traversal then pcall(traversal.clear) end
         if mission then pcall(mission.clear) end
         if avatars then pcall(avatars.clear) end
+        if peerlogs then pcall(peerlogs.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -339,8 +341,12 @@ function M.new(opts)
                 return
             end
             tr.accept(sender)
+            local isNew = S.peers[sender] == nil
             addPeer(sender, b)
             send(sender, T.WELCOME, true, S.selfName)
+            -- saves and the like only once someone really joined (user request 2026-11-13)
+            if isNew and opts.onPeerJoined then pcall(opts.onPeerJoined, sender) end
+            if isNew and peerlogs then send(sender, T.LOG_REQ, true, 1) end
             if lastLevelSent then send(sender, T.LEVEL, true, lastLevelSent) end
             if enemies then
                 pcall(enemies.hostSendAll, function(kind, reliable, ...) send(sender, T[kind], reliable, ...) end)
@@ -351,17 +357,26 @@ function M.new(opts)
             if traversal then
                 pcall(traversal.hostSendAll, function(x, y, z, pkg) send(sender, T.TRAV, true, x, y, z, pkg) end)
             end
-            if worldsync then
+            -- The client repeats HELLO every second until WELCOME arrives, so over Steam two or three
+            -- HELLOs come in: the save went out (and was loaded) twice (2026-11-13). Once per 30 s.
+            local jp = S.peers[sender]
+            if worldsync and jp and (jp.saveSentAt == nil or S.now - jp.saveSentAt > 30) then
+                jp.saveSentAt = S.now
                 -- it is still in its own level while it loads ours: no "alone in another level" pull yet
-                local jp = S.peers[sender]
-                if jp then jp.lastPull, jp.awaySince = S.now, nil end
+                jp.lastPull, jp.awaySince = S.now, nil
                 local ok, err = pcall(worldsync.hostSendTo, function(id, total, off, bytes)
                     send(sender, T.WORLD_SAVE, true, id, total, off, bytes)
                 end)
                 if not ok then log("worldsync send failed: " .. tostring(err)) end
             end
         elseif kind == T.WELCOME and S.mode == "client" then
-            if S.state ~= "connected" then log("connected to host " .. tostring(a)) end
+            if S.state ~= "connected" then
+                log("connected to host " .. tostring(a))
+                -- first contact: now the client's save may be backed up and protected (before the
+                -- host save, which follows WELCOME, is loaded)
+                if opts.onConnected then pcall(opts.onConnected) end
+                if peerlogs then send(sender, T.LOG_REQ, true, 1) end
+            end
             S.state = "connected"
             addPeer(sender, a)
             if lastLevelSent then send(sender, T.LEVEL, true, lastLevelSent) end
@@ -485,6 +500,14 @@ function M.new(opts)
                 p.rtt = (S.now - a) * 1000
                 H("setTeammate", sender, { ping = p.rtt })
             end
+        elseif kind == T.LOG_REQ then
+            -- only between the host and a client (no relay): whoever asks gets our logs
+            if peerlogs and (S.peers[sender] or sender == S.hostId) then peerlogs.onRequest(sender, S.now) end
+        elseif kind == T.LOG_CHUNK then
+            if peerlogs and (S.peers[sender] or sender == S.hostId) then
+                local p = S.peers[sender]
+                pcall(peerlogs.onChunk, p and p.name or tostring(sender), a, b, c, d)
+            end
         elseif kind == T.BYE then
             dropPeer(sender, "said bye")
         end
@@ -497,6 +520,9 @@ function M.new(opts)
         tr.poll(onPacket)
 
         if S.state == "failed" or S.state == "stopped" then return end
+        if peerlogs then
+            pcall(peerlogs.tick, now, function(id, tag, total, off, bytes) send(id, T.LOG_CHUNK, true, tag, total, off, bytes) end)
+        end
 
         if localState and localState.level ~= lastLevelSent then
             -- Host moved from one level to another: clients follow by reloading the new save,

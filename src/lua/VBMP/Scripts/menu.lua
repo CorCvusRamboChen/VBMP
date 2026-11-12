@@ -146,6 +146,8 @@ local function computeSignature()
     for _, f in ipairs(fr.hosts or {}) do table.insert(parts, "h" .. f.id) end
     for _, f in ipairs(fr.playing or {}) do table.insert(parts, "p" .. f.id) end
     for _, b in ipairs(api.backups()) do table.insert(parts, b.file) end
+    local eo, ep = api.exportResult()
+    table.insert(parts, tostring(eo) .. tostring(ep))
     return table.concat(parts, "|")
 end
 
@@ -202,6 +204,19 @@ local function rebuild()
             local ok, err = api.restore(b.file)
             status = ok and ("已恢复：" .. b.label .. "（恢复前的存档也备份了）") or ("恢复失败：" .. tostring(err))
         end, asking and { R = 0.9, G = 0.5, B = 0.1, A = 1 } or nil) })
+    end
+
+    addRow({ text("联机出问题时", 15), button("打包日志", function()
+        api.exportLogs()
+        status = "正在打包日志…"
+    end, { R = 0.35, G = 0.35, B = 0.4, A = 1 }) })
+    local eo, ep = api.exportResult()
+    if eo == true then
+        addLine("  日志已打包到桌面：" .. (tostring(ep):match("[^\\]+$") or tostring(ep)) .. "，发给开发者即可", 13)
+        if status == "正在打包日志…" then status = "" end
+    elseif eo == false then
+        addLine("  打包日志失败：" .. tostring(ep), 13)
+        if status == "正在打包日志…" then status = "" end
     end
 
     if status ~= "" then addLine(status, 14) end

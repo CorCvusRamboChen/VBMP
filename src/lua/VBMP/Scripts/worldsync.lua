@@ -41,6 +41,27 @@ DIFF_Vulnerable? DIFF_Lifeline? DIFF_SlimPickings? DIFF_Empowered? DIFF_FastReco
     LAYOUT[n] = true
 end
 
+-- v3 (user decision 2026-11-13): on the FIRST load of a session the client also takes the host's
+-- backpack - the run's weapons, their slots and mods, body mods, inventory, credits - and the
+-- story abilities / hack modules / integration keys the host's world already expects, so the
+-- joiner starts at the host's progress. Later loads (host changed level, pull back) take only
+-- LAYOUT: from then on each player's backpack is their own. Out-of-run progression (saveguard
+-- META) and the player's own look (skins) and health always stay the client's. The real save is
+-- not touched; saveguard carries only META back at the main menu.
+local BACKPACK = {}
+for n in ([[VoidCoins SelectedPrimary SelectedSecondary Weapon01NumberOfSlots Weapon02NumberOfSlots
+Weapon01Mods Weapon02Mods Weapon01Slots Weapon02Slots Weapon01ProjectileSlot Weapon02ProjectileSlot
+BodyMods InventorySlots PlayerCorruptionMods SelectedProjectileMod CurrentOptic SelectedFireMode
+PlayerProjectileAmmo WorldLockedMods ConstructorLockedMods UnlockedDash? UnlockedGrapple? UnlockedThrow?
+UnlockedWallRun? HasHackModule01? HasHackModule02? HasHackModule03? HasHackModule04? HasHackModule05?
+HasHackModule06? IntegrationKeys]]):gmatch("%S+") do
+    BACKPACK[n] = true
+end
+local JOIN_TAKE = {}
+for n in pairs(LAYOUT) do JOIN_TAKE[n] = true end
+for n in pairs(BACKPACK) do JOIN_TAKE[n] = true end
+M.BACKPACK, M.LAYOUT = BACKPACK, LAYOUT
+
 local function valid(o) return type(o) == "userdata" and o:IsValid() end
 local inMenu = require("saveguard").inMenu
 
@@ -66,6 +87,7 @@ function M.new(log)
 
     function W.setRole(role)
         W.role, W.rx, W.phase, W.lastLoaded = role, nil, nil, 0
+        W.backpackTaken = false
     end
 
     -- Host: save now and send the slot file to one client. sendTo(id, total, offset, bytes).
@@ -105,12 +127,16 @@ function M.new(log)
         local data = table.concat(buf)
         W.rx = nil
         if #data ~= total then log("worldsync: bad transfer size " .. #data .. "/" .. total); return end
-        -- Our own save (saveguard copied the real one to the client slot) + the host's layout.
+        -- Our own save (saveguard copied the real one to the client slot) + the host's layout,
+        -- and on the first load of the session the host's backpack too (BACKPACK above).
         local base = readFile(SAVES .. CLIENT_SLOT .. ".sav")
         if base then
-            local merged, kept, taken = gvas.splice(base, data, LAYOUT)
+            local first = not W.backpackTaken
+            local merged, kept, taken = gvas.splice(base, data, first and JOIN_TAKE or LAYOUT)
             if merged then
-                log(string.format("worldsync: kept %d of our properties, took %d layout properties from the host", kept, taken))
+                if first then W.backpackTaken = true end
+                log(string.format("worldsync: kept %d of our properties, took %d %s properties from the host", kept, taken,
+                    first and "layout + backpack" or "layout"))
                 data = merged
             else
                 log("worldsync: splice failed (" .. tostring(kept) .. "), using the host save as is")
