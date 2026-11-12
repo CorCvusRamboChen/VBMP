@@ -18,10 +18,11 @@ local T = codec.T
 
 local M = {}
 
-M.MOD_BUILD = 7                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30; 6: 0.9.0, PLAYER_GEAR 31, PLAYER_FIRE 32; 7: 0.10.0, LOG_REQ 33, LOG_CHUNK 34, backpack copied on join)
+M.MOD_BUILD = 8                  -- bump when the protocol or sync behaviour changes (2: 0.3.0, messages 12-26; 3: 0.6.0, STORY 27; 4: 0.7.0, REGION 28, TRAV 29; 5: 0.8.0, MISSION 30; 6: 0.9.0, PLAYER_GEAR 31, PLAYER_FIRE 32; 7: 0.10.0, LOG_REQ 33, LOG_CHUNK 34, backpack copied on join; 8: 0.11.0, BOSS_BAR 35)
 local SEND_RATE = 1 / 30
 local HELLO_EVERY = 1.0
 local HELLO_GIVE_UP = 30.0
+local LOG_EVERY = 180             -- seconds between log requests while connected (peerlogs.lua)
 local PING_EVERY = 2.0
 local LEVEL_EVERY = 5.0
 local ACCEPT_SCAN_EVERY = 2.0
@@ -80,6 +81,7 @@ function M.new(opts)
     local mission = opts.mission
     -- Teammates' arms, gun and bullets (avatars.lua).
     local avatars = opts.avatars
+    local bossbar = opts.bossbar
     local peerlogs = opts.peerlogs
     local lastDownFlag = 0
 
@@ -205,6 +207,7 @@ function M.new(opts)
             if traversal then traversal.setRole("host") end
             if mission then mission.setRole("host") end
             if avatars then avatars.setRole("host") end
+            if bossbar then bossbar.setRole("host") end
         elseif S.mode == "client" then
             setPresence("client")
             if not S.hostId then
@@ -232,6 +235,7 @@ function M.new(opts)
             if traversal then traversal.setRole("client") end
             if mission then mission.setRole("client") end
             if avatars then avatars.setRole("client") end
+            if bossbar then bossbar.setRole("client") end
         elseif S.mode == "loopback" then
             addPeer(tr.fakePeer, "Loopback")
             S.state = "loopback"
@@ -270,6 +274,7 @@ function M.new(opts)
         if mission then pcall(mission.clear) end
         if avatars then pcall(avatars.clear) end
         if peerlogs then pcall(peerlogs.clear) end
+        if bossbar then pcall(bossbar.clear) end
         if damagesync then pcall(damagesync.clear) end
         H("setStatus", nil)
         H("clear")
@@ -500,6 +505,8 @@ function M.new(opts)
                 p.rtt = (S.now - a) * 1000
                 H("setTeammate", sender, { ping = p.rtt })
             end
+        elseif kind == T.BOSS_BAR then
+            if bossbar and S.mode == "client" and sender == S.hostId then bossbar.onRemote(a, b, c, d, e, f, g, h) end
         elseif kind == T.LOG_REQ then
             -- only between the host and a client (no relay): whoever asks gets our logs
             if peerlogs and (S.peers[sender] or sender == S.hostId) then peerlogs.onRequest(sender, S.now) end
@@ -520,8 +527,24 @@ function M.new(opts)
         tr.poll(onPacket)
 
         if S.state == "failed" or S.state == "stopped" then return end
+        if bossbar then
+            local ok, err = pcall(bossbar.tick, dt, function(...) for id in pairs(S.peers) do send(id, T.BOSS_BAR, true, ...) end end)
+            if not ok then log("bossbar tick failed: " .. tostring(err)) end
+        end
         if peerlogs then
             pcall(peerlogs.tick, now, function(id, tag, total, off, bytes) send(id, T.LOG_CHUNK, true, tag, total, off, bytes) end)
+            -- Ask again every LOG_EVERY s while connected: the join-time logs end at the join, and
+            -- what happened later (a mission, a boss) is what we need (2026-11-13: the host's log
+            -- stopped at 03:50:45, the problems came at 03:51-03:58).
+            for id, p in pairs(S.peers) do
+                if (S.mode == "host" or (S.mode == "client" and id == S.hostId and S.state == "connected")) then
+                    p.logAskAt = p.logAskAt or now
+                    if now - p.logAskAt > LOG_EVERY then
+                        p.logAskAt = now
+                        send(id, T.LOG_REQ, true, 1)
+                    end
+                end
+            end
         end
 
         if localState and localState.level ~= lastLevelSent then

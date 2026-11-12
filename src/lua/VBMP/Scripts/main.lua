@@ -163,6 +163,8 @@ local avatars = require("avatars").new(log, { localPlayer = aggroLib.localPlayer
 enemies.aggro.externallyMoved = true
 -- Logs swapped with the other player after a join (peerlogs.lua).
 local peerlogs = require("peerlogs").new(log, SAVED)
+-- The host's boss health bar replayed on clients (bossbar.lua).
+local bossbar = require("bossbar").new(log, { playerController = aggroLib.localController })
 local session = nil
 local lastNow = nil
 
@@ -409,6 +411,7 @@ local function startSession(mode, hostId, via, steamHost)
         mission = (mode ~= "loopback") and mission or nil,
         avatars = (mode ~= "loopback") and avatars or nil,
         peerlogs = (mode ~= "loopback") and peerlogs or nil,
+        bossbar = (mode ~= "loopback") and bossbar or nil,
         hostId = hostId or (cfg.host and math.tointeger(tonumber(cfg.host))) or nil,
         name = cfg.name,
         -- Steam: finding the host's presence and NAT traversal take longer than a file link
@@ -732,6 +735,7 @@ local function selfTest()
         { T.PLAYER_GEAR, "/Game/ProjectLima/Blueprints/Data/Weapons/DA_Weapon_SMG.DA_Weapon_SMG" },
         { T.PLAYER_FIRE, -900.5, -199280.25, 5900, 270.5, -3.25 },
         { T.LOG_REQ, 1 },
+        { T.BOSS_BAR, 1, 52000, 52000, 0, 0, "Boss", 2, 3 },
         { T.LOG_CHUNK, "steam", 70000, 30000, "12:00:01  Steam 已初始化\n" },
         { T.PLAYER_HIT, 20 },
         { T.DST_BREAK, "BP_DST_M25_4x4_Floor_C_UAID_D8BBC116F90D4F7102_c290eee8a16c5ac0_1466998180", -1192.5, -196694.5, 7165.75 },

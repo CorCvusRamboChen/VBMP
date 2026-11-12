@@ -54,6 +54,12 @@
 - 两人同一位置：本地视角干净，没有队友的枪、没有人偶。
 - 编解码自检 31/31。
 
+## 0.11.0：远处看不见队友子弹（2026-11-13）
+
+- 真实联机里用户看不到队友的子弹（客户端显示了 190 发）。双开：B 在 A 侧面 15 米，A 开火 → B 的画面里没有弹道；把装饰子弹的 Niagara 组件放大到 3 倍、6 倍也完全不画。`NiagaraComponent:SetAllowScalability(false)` 以后能看到（截图 73、76）：玩家子弹拖尾 `NS_PRJ_StandardShot_v2` 有距离剔除，本来只给开枪的人近处看。现在装饰子弹关掉剔除、放大 2 倍。
+- 真子弹：武器的 `ProjectileToFire` 是 `BP_Projectile_Shotgun_C`（拿 SMG 也是），子弹从池里取出时调用 `EventOnBeginPool(LaunchVelocity, FSTR_ProjectileVFX)`，VFX 结构只有一个元素类型；子弹本身只有一个不可见的碰撞球，画面全靠拖尾；飞行时速度 2–3.5 万（`ProjectileMovement.InitialSpeed` 2 万）。`SetProjectileVisuals` 开火时不被调用。
+- 敌人子弹的特效（`NS_EnemyProjectile_Bar`、`_Twizzler`、`NS_HomingProjectile` 等）远处也看得见，但颜色是敌人的，没有用。
+
 ## 没做 / 已知限制
 
 - 化身只有手和枪，看不到身体（`CharacterMesh0` 从外面什么都不显示），看起来是"漂浮的手和枪"，上面有名字牌。

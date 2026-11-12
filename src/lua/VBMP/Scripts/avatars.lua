@@ -187,6 +187,11 @@ function M.new(log, opts)
         if trail then
             local nc = a:AddComponentByClass(StaticFindObject("/Script/Niagara.NiagaraComponent"), false, IDENTITY, false)
             nc:SetAsset(trail, true)
+            -- The player shot's trail is culled by distance (made to be seen from the shooter's
+            -- eyes): 15 m from the side it did not draw at all, at any scale. Without scalability
+            -- culling it shows (self-test 2026-11-13, screenshots 72/73).
+            pcall(function() nc:SetAllowScalability(false) end)
+            pcall(function() nc:SetWorldScale3D({ X = 2, Y = 2, Z = 2 }) end)
             nc:Activate(true)
         end
         local pm = a:AddComponentByClass(StaticFindObject("/Script/Engine.ProjectileMovementComponent"), false, IDENTITY, false)

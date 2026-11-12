@@ -60,6 +60,7 @@ M.T = {
                         --              2 completed (host -> clients) (mission.lua)
     LOG_REQ = 33,       -- "<B"         host <-> client after a join: send me your logs (peerlogs.lua)
     LOG_CHUNK = 34,     -- "<s1I4I4s2"  a piece of a log: tag (steam/game/update), total, offset, bytes
+    BOSS_BAR = 35,      -- "<Bffffs1BH" host -> clients: a call on the boss health bar (bossbar.lua)
 }
 M.NAMES = {}
 for k, v in pairs(M.T) do M.NAMES[v] = k end
@@ -100,6 +101,7 @@ local BODY = {
     [M.T.PLAYER_FIRE] = "<fffff",
     [M.T.LOG_REQ] = "<B",
     [M.T.LOG_CHUNK] = "<s1I4I4s2",
+    [M.T.BOSS_BAR] = "<Bffffs1BH",
 }
 
 -- s1 strings hold at most 255 bytes.
