@@ -158,6 +158,13 @@ public static class VbmpSteam
     static readonly HashSet<ulong> seenSenders = new HashSet<ulong>();
     static readonly HashSet<ulong> knocked = new HashSet<ulong>();
     static readonly byte[] KNOCK = new byte[] { 0xFF };   // 1 byte: never a valid frame (2-byte length + payload)
+    static readonly byte[] BYE = KNOCK;   // client -> host: "I am leaving". 0xFF, because hosts before 0.9.1 ignore it (0xFE would land in their data stream)
+    // Host: when each peer was last heard. A peer silent for PEER_TIMEOUT is forgotten, so the
+    // same friend (or another) can join again. Before 0.9.1 a peer was never removed: after
+    // leaving once, the friend could not rejoin until the host stopped hosting (2026-11-13: the
+    // client sent 58 packets, got 0; the host had stopped knocking because its list was full).
+    static readonly Dictionary<ulong, DateTime> heard = new Dictionary<ulong, DateTime>();
+    const double PEER_TIMEOUT = 10;
 
     // Host, every 2 s: accept and knock on every friend whose presence says vbmp=client. Sending
     // to a user opens the session from our side, so this does not depend on the
@@ -176,6 +183,8 @@ public static class VbmpSteam
             if (knocked.Add(f)) Log("主动连接想加入的好友 " + Name(f) + "（发送" + (ok ? "成功" : "失败") + "）");
         }
     }
+
+    static void IgnoreRequest(ulong remote) { }
 
     // Returns the remote ids of P2P session requests seen this frame (accepted or not).
     static void Dispatch(Action<ulong> onRequest)
@@ -381,6 +390,19 @@ public static class VbmpSteam
                 nextCheck = DateTime.Now.AddSeconds(1);
                 if (!SessionWanted()) { Log("游戏结束了这次联机，退出"); break; }
                 if (!GameRunning()) { Log("游戏已退出，退出"); break; }
+                if (host)
+                {
+                    foreach (var p in new List<ulong>(peers.Keys))
+                    {
+                        DateTime seen;
+                        if (heard.TryGetValue(p, out seen) && (DateTime.Now - seen).TotalSeconds > PEER_TIMEOUT)
+                        {
+                            Log(peers[p] + " " + PEER_TIMEOUT + " 秒没有消息，当作已离开");
+                            peers.Remove(p); heard.Remove(p); knocked.Remove(p);
+                            inLen = 0; lastSender = 0;
+                        }
+                    }
+                }
             }
             bool idle = true;
 
@@ -461,6 +483,12 @@ public static class VbmpSteam
                 if (seenSenders.Add(from))
                     Log(string.Format("第一次收到 {0} 的包：{1} 字节，好友关系 {2}", Name(from), got,
                         SteamAPI_ISteamFriends_GetFriendRelationship(friends, from)));
+                if (host && got == 1 && buf[0] == 0xFF)
+                {
+                    if (peers.ContainsKey(from)) { Log(peers[from] + " 离开了"); peers.Remove(from); heard.Remove(from); inLen = 0; lastSender = 0; }
+                    knocked.Remove(from);
+                    continue;
+                }
                 if (got == 1 && buf[0] == 0xFF)
                 {
                     // the host's knock (see KnockOnJoiners): opens the session, carries no data
@@ -476,6 +504,7 @@ public static class VbmpSteam
                         if (peers.Count >= 1) { Log("已经有一个队友了，忽略 " + Name(from)); continue; }
                         peers[from] = Name(from);
                         outOffset = LastBoundary(outPath); pending.Clear();
+                        inLen = 0;
                         Log(peers[from] + " 连上了");
                         WriteStatus("connected", peers[from] + " 已连上");
                     }
@@ -486,6 +515,7 @@ public static class VbmpSteam
                     if (lastSender != hostId) { Log("和房主连上了"); WriteStatus("connected", "已连上房主 " + peers[hostId]); }
                 }
                 lastSender = from;
+                if (host) heard[from] = DateTime.Now;
                 if (inLen + (int)got > inBuf.Length) Array.Resize(ref inBuf, Math.Max(inBuf.Length * 2, inLen + (int)got));
                 Buffer.BlockCopy(buf, 0, inBuf, inLen, (int)got); inLen += (int)got;
                 int frames; int whole = CompleteFrames(inBuf, inLen, out frames);
@@ -510,6 +540,12 @@ public static class VbmpSteam
                 Log(string.Format("发出 {0} 包 / {1} KB   收到 {2} 包 / {3} KB", framesOut, bytesOut / 1024, framesIn, bytesIn / 1024));
             }
             if (idle) Thread.Sleep(2);
+        }
+        // tell the host we are gone, so it can take us (or someone else) again at once
+        if (!host && hostId != 0)
+        {
+            for (int i = 0; i < 3; i++) SteamAPI_ISteamNetworking_SendP2PPacket(net, hostId, BYE, 1, SEND_RELIABLE, 0);
+            for (int i = 0; i < 25; i++) { Dispatch(new Action<ulong>(IgnoreRequest)); Thread.Sleep(20); }   // let it go out before shutdown
         }
         WriteStatus("stopped", "联机已结束");
         SteamAPI_ISteamFriends_ClearRichPresence(friends);

@@ -366,7 +366,12 @@ function M.new(opts)
             addPeer(sender, a)
             if lastLevelSent then send(sender, T.LEVEL, true, lastLevelSent) end
         elseif kind == T.REJECT then
-            fail("被房主拒绝：" .. tostring(a))
+            local hb, yb = tostring(a):match("mod build mismatch: host (%d+), you (%d+)")
+            if hb then
+                fail("和房主的 VBMP 版本不一样（协议 " .. hb .. " / " .. yb .. "）。两个人都重启游戏，等主菜单显示已更新后再重启一次")
+            else
+                fail("被房主拒绝：" .. tostring(a))
+            end
             log("rejected by host: " .. tostring(a))
         elseif kind == T.STATE then
             local p = S.peers[sender] or (S.mode == "client" and addPeer(sender, nil)) or nil
@@ -546,7 +551,7 @@ function M.new(opts)
                 send(S.hostId, T.HELLO, true, M.MOD_BUILD, S.selfName)
             end
             if now - started > (opts.helloGiveUp or HELLO_GIVE_UP) then
-                fail("连接超时（房主没有回应）")
+                fail("连接超时（房主没有回应）。确认两人版本相同；房主点 [离开联机] 再重新开房，然后再加入")
                 log("join: host did not answer in " .. (opts.helloGiveUp or HELLO_GIVE_UP) .. " s")
             end
             return

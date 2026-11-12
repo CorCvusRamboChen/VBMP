@@ -4,6 +4,7 @@
 
 - **0.8.4（2026-11-06）起辅助进程以 Steam appid 480（Spacewar）运行**：第一次真实两账号联机，客户端找到房主、发了 80 多个包，一个回复都没有；房主一直"等待好友加入"。在 gaming PC 上，游戏和客户端辅助进程都在运行时，用游戏的 appid 2615540 给自己发 P2P 包 5 秒没收到，用 480 一秒收到。判断：同一账号同一 appid 的多个进程共用 P2P，包被别的进程读走了。`VBMP.ini` 的 `steam_appid=` 可以改回去（两边必须一样）。副作用：Steam 状态多显示"正在玩 Spacewar"
 - 同时房主每 2 秒主动接受 rich presence 为 `client` 的好友，并发一个 1 字节的"敲门"包（`0xFF`，不是合法帧，客户端丢掉）；日志记录所有 Steam 回调、每个发送方的第一个包、被忽略的包
+- 0.9.1：房主的队友名单会过期。队友 10 秒没有任何包就从名单里去掉，名单空了重新开始敲门；客户端退出时给房主发 3 个 `0xFF`（老版本房主本来就忽略这个字节），房主收到后立刻去掉他。0.9.0 及以前队友名单只进不出：离开一次以后，房主不重新开房就再也连不上（2026-11-13，客户端发 58 包、收 0）
 
 - `src/lua/VBMP/steam/vbmp-steam.ps1`（PowerShell 内嵌 C#）。开房 / 加入时由 main.lua 用 `os.execute('start … -WindowStyle Hidden')` 启动，不用玩家手动运行
 - 它在独立进程里设置 `SteamAppId=2615540`（appmanifest），加载游戏自带的 `Engine\Binaries\ThirdParty\Steamworks\Steamv161\Win64\steam_api64.dll`，用真正的 64 位 SteamID 收发旧版 ISteamNetworking P2P 包（全部可靠通道）
